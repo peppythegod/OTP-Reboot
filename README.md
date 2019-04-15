@@ -1,2 +1,3 @@
-# OTP-Reboot
-A reverse engineering of Disney's original Online Theme Park geared towards supporting Toontown Online.
+# Toontown OTP
+
+OTP server implementation by Skipps with adaptions for 2010 source
