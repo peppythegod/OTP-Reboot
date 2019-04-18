@@ -109,3 +109,5 @@ ENV/
 *.yml
 *.toml
 databases/
+
+*.bat

@@ -99,7 +99,7 @@ class NetworkDCLoader(object):
         for i in range(self._dc_file.get_num_classes()):
             dclass = self._dc_file.get_class(i)
             number = dclass.get_number()
-            class_name = dclass.get_name() + self._dc_suffix
+            class_name = dclass.get_name() + self._dc_suffix 
 
             # Does the class have a definition defined in the newly
             # imported namespace?
@@ -278,7 +278,6 @@ class NetworkConnector(NetworkManager):
         """
         Sends a datagram to our connection
         """
-
         self.__writer.send(datagram, self.__socket)
 
     def handle_internal_datagram(self, di):

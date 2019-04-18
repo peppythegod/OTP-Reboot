@@ -980,6 +980,8 @@ class Client(io.NetworkHandler):
         elif message_type == types.CLIENT_OBJECT_UPDATE_FIELD:
             self.handle_object_update_field(di)
         elif message_type == types.CLIENT_ADD_INTEREST:
+            print("got interst")
+            return
             self.handle_add_interest(di)
         else:
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_INVALID_MSGTYPE,
@@ -1032,8 +1034,7 @@ class Client(io.NetworkHandler):
 
         # request all of the objects in the zones we have interest in
         avatar_id = self.get_avatar_id_from_connection_channel(self.channel)
-        #self._deferred_callback = util.DeferredCallback(self.handle_set_zone_complete_callback,
-        #    old_parent_id, old_zone_id, new_parent_id, new_zone_id)
+        self._deferred_callback = util.DeferredCallback(self.handle_set_interest_callback)
 
         datagram = io.NetworkDatagram()
         datagram.add_header(avatar_id, self.channel,
@@ -1045,7 +1046,14 @@ class Client(io.NetworkHandler):
         for interest_zone in interest_zones:
             datagram.add_uint32(interest_zone)
 
+        print("sending")
         self.network.handle_send_connection_datagram(datagram)
+        
+    def handle_set_interest_callback(self):
+        self._deferred_callback.destroy()
+        self._deferred_callback = None
+        
+        print("got")
         
 
     def handle_login(self, di):

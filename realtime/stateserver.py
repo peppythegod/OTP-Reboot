@@ -889,7 +889,7 @@ class StateServer(io.NetworkConnector):
         dc_class = self.dc_loader.dclasses_by_number.get(dc_id)
         if not dc_class:
             self.notify.warning('Failed to generate an object with do_id: %d, '
-                'no dclass found for dc_id: %d!' % do_id, dc_id)
+                'no dclass found for dc_id: %d!' % (do_id, dc_id))
 
             return
 
