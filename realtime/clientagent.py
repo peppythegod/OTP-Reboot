@@ -9,12 +9,16 @@ import collections
 import time
 import semidbm
 import itertools
+import inspect
+import random
+import threading
 
 from panda3d.core import *
 from panda3d.direct import *
 
 from direct.distributed.PyDatagramIterator import PyDatagramIterator
 from direct.distributed.PyDatagram import PyDatagram
+from direct.distributed.MsgTypes import *
 from direct.fsm.FSM import FSM
 
 from realtime import io
@@ -23,6 +27,16 @@ from realtime.notifier import notify
 from realtime import util
 
 from game.OtpDoGlobals import *
+from game import ZoneUtil
+
+ESSENTIAL_COMPLETE_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE, 
+    OTP_ZONE_ID_MANAGEMENT, 
+    OTP_ZONE_ID_DISTRICTS,
+    OTP_ZONE_ID_DISTRICTS_STATS,
+    OTP_ZONE_ID_ELEMENTS
+]
+
+PERMA_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE, OTP_ZONE_ID_DISTRICTS, OTP_ZONE_ID_DISTRICTS_STATS, OTP_ZONE_ID_MANAGEMENT]
 
 
 class ClientOperation(FSM):
@@ -831,6 +845,84 @@ class DeleteAvatarFSM(ClientOperation):
 
     def exitSetAvatars(self):
         pass
+        
+class SetAvatarZonesFSM(ClientOperation):
+    notify = notify.new_category('SetAvatarZonesFSM')
+
+    def __init__(self, manager, client, callback, avatar_id, zone_id):
+        self.notify.debug("SetAvatarZonesFSM.__init__(%s, %s, %s, %s, %s)" % (str(manager), str(client),
+            str(callback), str(avatar_id), str(zone_id)))
+
+        ClientOperation.__init__(self, manager, client, callback)
+
+        self._avatar_id = avatar_id
+        self._callback = callback
+        self._dc_class = None
+        self._zone_id = zone_id
+        self._fields = {}
+
+    def enterStart(self):
+        self.notify.debug("SetAvatarZonesFSM.enterQuery()")
+
+        def response(dclass, fields):
+            self.notify.debug("SetAvatarZonesFSM.enterQuery.response(%s, %s)" % (str(dclass), str(fields)))
+            self._dc_class = dclass
+            self._fields = fields
+            self.request('SetField')
+
+        self.manager.network.database_interface.query_object(self.client.channel,
+            types.DATABASE_CHANNEL,
+            self._avatar_id,
+            response,
+            self.manager.network.dc_loader.dclasses_by_name['DistributedToon'])
+
+    def exitStart(self):
+        self.notify.debug("SetAvatarZonesFSM.exitQuery()")
+
+    def enterSetField(self):
+        self.notify.debug("SetAvatarZonesFSM.enterSetField()")
+
+        hoodsVisited = self._fields['setHoodsVisited'][0]
+        if self._zone_id not in hoodsVisited:
+            hoodsVisited.append(self._zone_id)
+            
+        # For some reason we can't update more than one field at once?
+            
+        new_fields = {
+             'setHoodsVisited': (hoodsVisited,)
+        }
+
+        self.manager.network.database_interface.update_object(self.client.channel,
+            types.DATABASE_CHANNEL,
+            self._avatar_id,
+            self.manager.network.dc_loader.dclasses_by_name['DistributedToon'],
+            new_fields)
+            
+        new_fields = {
+             'setLastHood': (self._zone_id,)
+        }
+
+        self.manager.network.database_interface.update_object(self.client.channel,
+            types.DATABASE_CHANNEL,
+            self._avatar_id,
+            self.manager.network.dc_loader.dclasses_by_name['DistributedToon'],
+            new_fields)
+            
+        new_fields = {
+             'setDefaultZone': (self._zone_id,)
+        }
+
+        self.manager.network.database_interface.update_object(self.client.channel,
+            types.DATABASE_CHANNEL,
+            self._avatar_id,
+            self.manager.network.dc_loader.dclasses_by_name['DistributedToon'],
+            new_fields)
+
+        # We're all done
+        self.cleanup(True)
+
+    def exitSetField(self):
+        self.notify.debug("SetAvatarZonesFSM.exitSetField()")
 
 class ClientAccountManager(ClientOperationManager):
     notify = notify.new_category('ClientAccountManager')
@@ -857,6 +949,7 @@ class InterestManager(object):
 
     def __init__(self):
         self._interest_zones = []
+        self._interest_objects = []
 
     @property
     def interest_zones(self):
@@ -879,6 +972,146 @@ class InterestManager(object):
 
     def clear(self):
         self._interest_zones = []
+        
+    def add_interest_object(self, i):
+        self._interest_objects.append(i)
+        
+    def has_interest_object(self, i):
+        return i in self._interest_objects
+        
+    def has_interest_object_id(self, _id, _obj = False):
+        for interest in self._interest_objects:
+            if interest.getId() == _id:
+                if _obj:
+                    return interest
+                    
+                return True
+                
+        return False
+        
+    def has_interest_object_parent(self, parentId):
+        for interest in self._interest_objects:
+            if interest.getParent() == parentId:
+                return True
+                
+        return False
+        
+    def has_interest_object_zone(self, zoneId):
+        for interest in self._interest_objects:
+            if interest.hasZone(zoneId):
+                return True
+                
+        return False
+        
+    def has_interest_object_parent_and_zone(self, parentId, zoneId, getObj = False):
+        for interest in self._interest_objects:
+            if interest.getParent() == parentId and interest.hasZone(zoneId):
+                if getObj:
+                    return interest
+                return True
+                
+        return False
+        
+    def get_interest_object_by_id(self, _id):
+        return self.has_interest_object_id(_id, True)
+        
+    def remove_interest_object(self, i):
+        self._interest_objects.remove(i)
+        
+    def get_interest_objects(self):
+        return self._interest_objects
+        
+class InterestOperation:
+    def __init__(self, client, timeout, Id, context, 
+            parent, zones, caller):
+            
+        self.client = client
+        self.timeout = timeout
+        self.id = Id
+        self.context = context
+        self.parent = parent
+        self.zones = zones
+        self.caller = caller
+        
+class ZoneList:
+    
+    def __init__(self):
+        self.zones = []
+    
+    def addZone(self, zoneId):
+        self.zones.append(zoneId)
+        
+    def removeZone(self, zoneId):
+        self.zones.remove(zoneId)
+        
+    def getZones(self):
+        return self.zones
+        
+    def hasZone(self, zoneId):
+        return zoneId in self.zones
+        
+class Interest:
+    
+    def __init__(self):
+        self.zones = ZoneList()
+        self.id = -1
+        self.context = -1
+        self.parent = -1
+    
+    def setId(self, _id):
+        self.id = _id
+        
+    def getId(self):
+        return self.id
+        
+    def setContext(self, _context):
+        self.context = _context
+        
+    def getContext(self):
+        return self.context
+        
+    def setParent(self, _parent):
+        self.parent = _parent
+        
+    def getParent(self):
+        return self.parent
+        
+    def addZone(self, zone):
+        self.zones.addZone(zone)
+        
+    def removeZone(self, zone):
+        self.zones.removeZone(zone)
+        
+    def getZones(self):
+        return self.zones.getZones()
+        
+    def hasZone(self, zone):
+        return self.zones.hasZone(zone)
+        
+class VisibleObject:
+    def __init__(self):
+        self.parent = -1
+        self.zone = -1
+        self.id = -1
+    
+    def setParent(self, parent):
+        self.parent = parent
+        
+    def getParent(self):
+        return self.parent
+        
+    def setZone(self, zone):
+        self.zone = zone
+        
+    def getZone(self):
+        return self.zone
+        
+    def setId(self, _id):
+        self.id = id
+        
+    def getId(self):
+        return self.id
+        
 
 class Client(io.NetworkHandler):
     notify = notify.new_category('Client')
@@ -895,6 +1128,17 @@ class Client(io.NetworkHandler):
         self._seen_objects = {}
         self._owned_objects = []
         self._pending_objects = []
+        
+        # 2010
+        self._visibile_objects = []
+        self._seen_objects_2 = []
+        self._pending_interests = {}
+        self._context_id = 0
+        self._context_to_callback = {}
+        self._interest_delete_queue = []
+        
+        self.idtest = random.random()
+
 
     @property
     def authenticated(self):
@@ -903,6 +1147,10 @@ class Client(io.NetworkHandler):
     @authenticated.setter
     def authenticated(self, authenticated):
         self._authenticated = authenticated
+        
+    def get_next_context(self):
+        self._context_id += 1
+        return self._context_id
 
     def has_seen_object(self, do_id):
         for zone_id, seen_objects in list(self._seen_objects.items()):
@@ -915,8 +1163,8 @@ class Client(io.NetworkHandler):
         io.NetworkHandler.startup(self)
 
     def handle_send_disconnect(self, code, reason):
-        #self.notify.warning('Disconnecting channel: %d, reason: %s' % (
-        #    self.channel, reason))
+        self.notify.warning('Disconnecting channel: %d, reason: %s' % (
+            self.channel, reason))
 
         datagram = io.NetworkDatagram()
         datagram.add_uint16(types.CLIENT_GO_GET_LOST)
@@ -980,9 +1228,11 @@ class Client(io.NetworkHandler):
         elif message_type == types.CLIENT_OBJECT_UPDATE_FIELD:
             self.handle_object_update_field(di)
         elif message_type == types.CLIENT_ADD_INTEREST:
-            print("got interst")
-            return
             self.handle_add_interest(di)
+        elif message_type == types.CLIENT_REMOVE_INTEREST:
+            self.handle_remove_interest(di)
+        elif message_type == types.CLIENT_OBJECT_LOCATION:
+            self.handle_client_object_location(di)
         else:
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_INVALID_MSGTYPE,
                 'Unknown datagram: %d from channel: %d!' % (
@@ -1003,6 +1253,8 @@ class Client(io.NetworkHandler):
             self.handle_object_location_ack(di)
         elif message_type == types.STATESERVER_OBJECT_GET_ZONES_OBJECTS_RESP:
             self.handle_object_get_zones_objects_resp(di)
+        elif message_type == types.STATESERVER_OBJECT_GET_ZONES_OBJECTS_2_RESP:
+            self.handle_object_get_zones_objects_resp_2(di)
         elif message_type == types.STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED:
             self.handle_object_enter_owner(False, di)
         elif message_type == types.STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER:
@@ -1014,48 +1266,205 @@ class Client(io.NetworkHandler):
         elif message_type == types.STATESERVER_OBJECT_DELETE_RAM:
             self.handle_object_delete_ram(di)
         elif message_type == types.STATESERVER_OBJECT_UPDATE_FIELD:
-            self.handle_object_update_field_resp(di)
+            self.handle_object_update_field_resp(sender, di)
         else:
             self.network.database_interface.handle_datagram(message_type, di)
             
-    def handle_add_interest(self, di): #todo properly
+    def handle_client_object_location(self, di):
         try:
-            handle = di.getUint16()
-            contextId = di.getUint32()
-            parentId = di.getUint32()
-            while di.getRemainingSize() > 0:
-                zoneId = di.getUint32()
-                self._interest_manager.add_interest_zone(zoneId)
+            doId = di.get_uint32()
+            parentId = di.get_uint32()
+            zoneId = di.get_uint32()
         except:
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_TRUNCATED_DATAGRAM,
                 'Received truncated datagram from channel: %d!' % (
                     self._channel))
             return
+           
+        context = self.get_next_context()
+        
+        _deferred_callback = util.DeferredCallback(self.handle_set_loc_shard_callback, zoneId)
+        self._context_to_callback[context] = _deferred_callback
+        
+        datagram = io.NetworkDatagram()
+        datagram.add_header(doId, self.channel,
+            types.STATESERVER_OBJECT_SET_AI)
+        
+        datagram.add_uint64(parentId - 1)
+        datagram.add_uint32(context)
+        datagram.add_uint32(zoneId)
+        self.network.handle_send_connection_datagram(datagram)
 
-        # request all of the objects in the zones we have interest in
-        avatar_id = self.get_avatar_id_from_connection_channel(self.channel)
-        self._deferred_callback = util.DeferredCallback(self.handle_set_interest_callback)
+    def handle_set_loc_shard_callback(self, do_id, old_parent_id, old_zone_id, new_parent_id, new_zone_id, actualZone = None):
+        return
+            
+    def handle_remove_interest(self, di):
+        try:
+            interestId = di.getUint16()
+        except:
+            self.handle_send_disconnect(types.CLIENT_DISCONNECT_TRUNCATED_DATAGRAM,
+                'Received truncated datagram from channel: %d!' % (
+                    self._channel))
+            return
+            
+        if self._interest_manager.has_interest_object_id(interestId):
+            kill_zones = []
+            interest = self._interest_manager.get_interest_object_by_id(interestId)
+            for zone in interest.getZones():
+                if len(self.lookup_interest(interest.getParent(), zone)) == 1:
+                    kill_zones.append(zone)
+            
+            self.close_zones(kill_zones, interest.getParent())
+            self.handle_interest_done(interest.getId(), interest.getContext())
+            self._interest_manager.remove_interest_object(interest)
+        else:
+            self.notify.info("Delete for unknown interest id %d" %interestId)
+            
+    def handle_add_interest(self, di): 
+        try:
+            interest = self.build_interest(di)
+        except:
+            self.handle_send_disconnect(types.CLIENT_DISCONNECT_TRUNCATED_DATAGRAM,
+                'Received truncated datagram from channel: %d!' % (
+                    self._channel))
+            return
+            
+        
+        newZones = []
+        for zone in interest.getZones():
+            if not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone):
+                newZones.append(zone)
+                
+        if self._interest_manager.has_interest_object_id(interest.getId()):
+            self.notify.info("Updating already existing interest")
+            previousInterest = self._interest_manager.get_interest_object_by_id(interest.getId())
+            killedZones = []
+            for zone in previousInterest.getZones():
+                if len(self.lookup_interest(previousInterest.getParent(), zone)) > 1:
+                    continue
+                
+                if interest.getParent() != previousInterest.getParent() or not interest.hasZone(zone):
+                    killedZones.append(zone)
+                    
+            self.close_zones(killedZones, interest.getParent())
+            self._interest_manager.remove_interest_object(self._interest_manager.has_interest_object_id(interest.getId(), True))
+        
+        self._interest_manager.add_interest_object(interest)
+            
+        op = InterestOperation(self, 500, interest.getId(), interest.getContext(),
+            interest.getParent(), newZones, self.channel)
+        self._pending_interests[interest.getContext()] = interest
+
+        self._deferred_callback = util.DeferredCallback(self.handle_interest_complete_callback, interest.getContext())
 
         datagram = io.NetworkDatagram()
-        datagram.add_header(avatar_id, self.channel,
-            types.STATESERVER_OBJECT_GET_ZONES_OBJECTS)
-
-        # pack the interest zones
-        interest_zones = list(self._interest_manager.interest_zones)
-        datagram.add_uint16(len(interest_zones))
-        for interest_zone in interest_zones:
-            datagram.add_uint32(interest_zone)
-
-        print("sending")
+        datagram.add_header(interest.getParent(), self.channel,
+            types.STATESERVER_OBJECT_GET_ZONES_OBJECTS_2)
+        datagram.add_uint32(interest.getContext())
+        datagram.add_uint16(len(newZones))
+        for zone in newZones:
+            datagram.add_uint32(zone)
+            
         self.network.handle_send_connection_datagram(datagram)
+            
+    def handle_interest_done(self, interestId, context):
+        dg = PyDatagram()
+        dg.addUint16(types.CLIENT_DONE_INTEREST_RESP)
+        dg.addUint16(interestId)
+        dg.addUint32(context)
+        self.handle_send_datagram(dg)
         
-    def handle_set_interest_callback(self):
-        self._deferred_callback.destroy()
-        self._deferred_callback = None
-        
-        print("got")
-        
+    def handle_interest_complete_callback(self, complete, contextId):
+        if complete:
+            if self._pending_interests.has_key(contextId):
+                interest = self._pending_interests[contextId]
+                self.handle_interest_done(interest.id, contextId)
+                del self._pending_interests[contextId]
+        else:
+            if self._pending_interests.has_key(contextId):
+                interest = self._pending_interests[contextId]
+                zone = interest.getZones()[-1]
+                if zone in self._seen_objects.keys():
+                    self.handle_interest_done(interest.id, contextId)
+            
+    def close_zones(self, kill_zones, parent):
+        # send delete for all objects we've seen that were in the zone
+        # that we've just left...
+        for zone in kill_zones:
+            if zone not in PERMA_ZONES and self._seen_objects.has_key(zone):
+                seen_objects = self._seen_objects[zone]
+                for do_id in seen_objects:
+                    # we do not want to delete our owned objects...
+                    if do_id not in self._owned_objects:
+                        self.send_client_object_delete_resp(do_id)
 
+                del self._seen_objects[zone]
+                
+                # Tell the State object to stop watching this zone
+                datagram = io.NetworkDatagram()
+                datagram.add_header(parent, self.channel,
+                    types.STATESERVER_OBJECT_CLEAR_WATCH)
+                datagram.add_uint32(zone)
+                self.network.handle_send_connection_datagram(datagram)
+        
+    def lookup_interest(self, parent, zone):
+        interests = []
+        for interest in self._interest_manager.get_interest_objects():
+            if interest.getParent() == parent and interest.hasZone(zone):
+                interests.append(interest)
+                
+        return interests
+            
+    def build_interest(self, di):
+        interestId = di.getUint16()
+        contextId = di.getUint32()
+        parentId = di.getUint32()
+        
+        interest = Interest()
+        interest.setId(interestId)
+        interest.setParent(parentId)
+        interest.setContext(contextId)
+        
+        while di.getRemainingSize() > 0:
+            interest.addZone(di.getUint32())
+        
+        return interest
+        
+    def handle_object_get_zones_objects_resp_2(self, di):
+        contextId = di.get_uint32()
+        if self._pending_interests.has_key(contextId):
+            num_objects = di.get_uint16()
+            if num_objects > 0:
+                actual_objects = 0
+                for _ in range(num_objects):
+                    do_id = di.get_uint64()
+                    if not self.is_perma_object(do_id) and not self.is_my_avatar(do_id) and not self.has_seen_object(do_id):
+                        self._pending_objects.append(do_id)
+                        actual_objects += 1
+                
+                if actual_objects == 0:
+                    self._deferred_callback.callback(True)
+                    return
+                
+                if self._deferred_callback:
+                    self._deferred_callback.callback(False)      
+            else:
+                if self._deferred_callback:
+                    self._deferred_callback.callback(True)   
+        else:
+            self.notify.info("Unknown context id recieved %d" %contextId)
+            
+    def is_perma_object(self, doId):
+        for perma_zone in PERMA_ZONES:
+            if self._seen_objects.has_key(perma_zone):
+                if doId in self._seen_objects[perma_zone]:
+                    return True
+        
+        return False
+        
+    def is_my_avatar(self, doId):
+        return doId == self.get_avatar_id_from_connection_channel(self.channel)
+            
     def handle_login(self, di):
         try:
             play_token = di.get_string()
@@ -1114,6 +1523,7 @@ class Client(io.NetworkHandler):
         self.network.handle_send_connection_datagram(datagram)
 
     def handle_get_shard_list_resp(self, di):
+        return
         datagram = io.NetworkDatagram()
         datagram.add_uint16(types.CLIENT_GET_SHARD_LIST_RESP)
         datagram.append_data(di.get_remaining_bytes())
@@ -1302,6 +1712,7 @@ class Client(io.NetworkHandler):
         self.handle_send_datagram(datagram)
 
     def handle_set_shard(self, di):
+        return
         try:
             shard_id = di.get_uint32()
         except:
@@ -1318,7 +1729,7 @@ class Client(io.NetworkHandler):
         datagram.add_header(avatar_id, self.channel,
             types.STATESERVER_OBJECT_SET_AI)
 
-        datagram.add_uint64(shard_id)
+        datagram.add_uint64(shard_id - 1)
         self.network.handle_send_connection_datagram(datagram)
 
     def handle_set_shard_callback(self, do_id, old_parent_id, old_zone_id, new_parent_id, new_zone_id):
@@ -1327,6 +1738,7 @@ class Client(io.NetworkHandler):
         self.handle_send_datagram(datagram)
 
     def handle_set_zone(self, di):
+        return
         try:
             zone_id = di.get_uint16()
         except:
@@ -1347,6 +1759,7 @@ class Client(io.NetworkHandler):
         self.network.handle_send_connection_datagram(datagram)
 
     def handle_set_zone_callback(self, do_id, old_parent_id, old_zone_id, new_parent_id, new_zone_id):
+        return
         self._deferred_callback.destroy()
         self._deferred_callback = None
 
@@ -1391,9 +1804,19 @@ class Client(io.NetworkHandler):
 
         new_parent_id = di.get_uint32()
         new_zone_id = di.get_uint32()
-
-        if self._deferred_callback:
-            self._deferred_callback.callback(do_id, old_parent_id, old_zone_id, new_parent_id, new_zone_id)
+        
+        context = di.get_uint32()
+        
+        if context != 0:
+            if self._context_to_callback.has_key(context):
+                callback = self._context_to_callback[context]
+                del self._context_to_callback[context]
+        else:
+            if self._deferred_callback:
+                try:
+                    self._deferred_callback.callback(do_id, old_parent_id, old_zone_id, new_parent_id, new_zone_id)
+                except:
+                    pass
 
     def handle_object_get_zones_objects_resp(self, di):
         do_id = di.get_uint64()
@@ -1468,12 +1891,19 @@ class Client(io.NetworkHandler):
 
         # check to see if we have interest in this object's zone, and if we
         # do then we can safely send generate for the object...
-        if not self._interest_manager.has_interest_zone(zone_id):
+        #if not self._interest_manager.has_interest_zone(zone_id):
+        #    return
+        if not self._interest_manager.has_interest_object_zone(zone_id):
             return
 
         # if the object is in the list of owned objects, we do not want to
         # generate this object, as it was already generated elsewhere...
         if do_id in self._owned_objects:
+            return
+            
+        # check to see if we already generated this object
+        # TODO: redo interest handles to avoid this
+        if self._seen_objects.has_key(zone_id) and do_id in self._seen_objects[zone_id]:
             return
 
         datagram = io.NetworkDatagram()
@@ -1482,13 +1912,24 @@ class Client(io.NetworkHandler):
         else:
             datagram.add_uint16(types.CLIENT_CREATE_OBJECT_REQUIRED_OTHER)
 
+        #2003:
+        #datagram.add_uint16(dc_id)
+        #datagram.add_uint32(do_id)
+        
+        datagram.add_uint32(parent_id)
+        datagram.add_uint32(zone_id)
         datagram.add_uint16(dc_id)
         datagram.add_uint32(do_id)
+        
         datagram.append_data(di.get_remaining_bytes())
         self.handle_send_datagram(datagram)
 
-        seen_objects = self._seen_objects.setdefault(zone_id, [])
-        seen_objects.append(do_id)
+        #seen_objects = self._seen_objects.setdefault(zone_id, [])
+        #seen_objects.append(do_id)
+        if not self._seen_objects.has_key(zone_id):
+            self._seen_objects[zone_id] = []
+        if do_id not in self._seen_objects[zone_id]:
+            self._seen_objects[zone_id].append(do_id)
 
         # check to see if we have a pending interest handle that is looking
         # to see when this object generate has arrived.
@@ -1520,7 +1961,12 @@ class Client(io.NetworkHandler):
         self.handle_send_datagram(datagram)
 
     def handle_object_delete_ram(self, di):
-        self.send_client_object_delete_resp(di.get_uint32())
+        doId = di.get_uint32()   
+        self.send_client_object_delete_resp(doId)
+        for zoneId in self._seen_objects.keys():
+            for objId in self._seen_objects[zoneId]:
+                if objId == doId:
+                    self._seen_objects[zoneId].remove(doId)
 
     def handle_object_update_field(self, di):
         try:
@@ -1543,7 +1989,7 @@ class Client(io.NetworkHandler):
         datagram.append_data(di.get_remaining_bytes())
         self.network.handle_send_connection_datagram(datagram)
 
-    def handle_object_update_field_resp(self, di):
+    def handle_object_update_field_resp(self, sender, di):
         do_id = di.get_uint32()
         field_id = di.get_uint16()
 

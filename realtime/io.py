@@ -384,7 +384,7 @@ class NetworkHandler(NetworkManager):
         """
         Registers our connections channel with the MessageDirector
         """
-
+        
         datagram = NetworkDatagram()
         datagram.add_control_header(channel, types.CONTROL_SET_CHANNEL)
         self._network.handle_send_connection_datagram(datagram)
@@ -394,6 +394,7 @@ class NetworkHandler(NetworkManager):
         """
         Unregisters our connections channel from the MessageDirector
         """
+        
 
         datagram = NetworkDatagram()
         datagram.add_control_header(channel, types.CONTROL_REMOVE_CHANNEL)
@@ -451,14 +452,14 @@ class NetworkHandler(NetworkManager):
         """
         Disconnects our client socket instance
         """
-
         self._network.handle_disconnect(self)
 
     def handle_disconnected(self):
         """
         Handles disconnection when the socket connection closes
         """
-
+        self.unregister_for_channel(self.get_puppet_connection_channel(self.get_avatar_id_from_connection_channel(self._channel)))
+        self.unregister_for_channel(self._channel)
         self._network.handle_disconnected(self)
 
     def shutdown(self):

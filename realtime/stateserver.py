@@ -7,6 +7,7 @@
 
 import collections
 import itertools
+import random
 
 from panda3d.direct import *
 
@@ -54,6 +55,10 @@ class ShardManager(object):
         return self.shards.get(channel)
 
 
+class SimpleContextQueue:
+    def __init__(self):
+        self.ack_contexts = []
+
 class StateObject(object):
     notify = notify.new_category('StateObject')
 
@@ -82,6 +87,7 @@ class StateObject(object):
         self._other_fields = {}
 
         self._zone_objects = {}
+        self._watch_list = {}
 
         field_packer = DCPacker()
         field_packer.set_unpack_data(di.get_remaining_bytes())
@@ -291,6 +297,10 @@ class StateObject(object):
             self.handle_set_location(sender, di)
         elif message_type == types.STATESERVER_OBJECT_GET_ZONES_OBJECTS:
             self.handle_get_zones_objects(sender, di)
+        elif message_type == types.STATESERVER_OBJECT_GET_ZONES_OBJECTS_2:
+            self.handle_get_zones_objects_2(sender, di)
+        elif message_type == types.STATESERVER_OBJECT_CLEAR_WATCH:
+            self.handle_clear_watch(sender, di)
         else:
             self.notify.warning('Received unknown message type: %d '
                 'for object %d!' % (message_type, self._do_id))
@@ -368,8 +378,6 @@ class StateObject(object):
 
     def handle_set_ai(self, sender, di):
         new_ai_channel = di.get_uint64()
-        if new_ai_channel == self._ai_channel:
-            return
 
         shard = self._network.shard_manager.get_shard(new_ai_channel)
         if not shard:
@@ -377,13 +385,23 @@ class StateObject(object):
                 'no AI was found with that channel!' % (new_ai_channel, self._do_id))
 
             return
+            
+        if di.get_remaining_bytes():
+            context = di.get_uint32()
+            self.object_manager.context_queue.ack_contexts.append(context)
+            zoneId = di.get_uint32()
+            if zoneId > 999:
+                self.zone_id = zoneId
+                self.handle_send_changing_location(self._ai_channel)
 
-        self.ai_channel = new_ai_channel
-        if self._owner_id:
-            self.parent_id = shard.district_id
+        if new_ai_channel != self._ai_channel:
+            self.ai_channel = new_ai_channel
+            if self._owner_id:
+                self.parent_id = shard.district_id
 
-        self.handle_send_ai_entry(self._ai_channel)
-        self.handle_send_changing_ai(self.old_ai_channel)
+            self.handle_send_ai_entry(self._ai_channel)
+            self.handle_send_changing_ai(self.old_ai_channel)
+            
         self.object_manager.handle_changing_location(self)
 
     def handle_send_changing_location(self, channel):
@@ -440,7 +458,19 @@ class StateObject(object):
         datagram.add_uint32(self._old_zone_id)
         datagram.add_uint32(self._parent_id)
         datagram.add_uint32(self._zone_id)
+        if len(self.object_manager.context_queue.ack_contexts) > 0:
+            context = self.object_manager.context_queue.ack_contexts.pop(0)
+            datagram.add_uint32(context)
+        else:
+            datagram.add_uint32(0)
         self._network.handle_send_connection_datagram(datagram)
+        
+    def has_zone_watcher(self, zone_id):
+        for sender in self._watch_list.keys():
+            if zone_id in self._watch_list[sender]:
+                return (True, sender)
+                
+        return (False, None)
 
     def handle_changing_location(self, child_do_id, new_parent_id, new_zone_id):
         # retrieve this object from it's do_id, if we cannot find this object in the do_id to do
@@ -462,20 +492,33 @@ class StateObject(object):
                 send_location_entry = True
                 send_location_departure = True
         else:
-            assert(new_parent_id == self._do_id)
             self.add_child_in_zone(child_object.do_id, new_zone_id)
             send_location_entry = True
 
         # if this object is entering the new zone, then relay a location
         # generate to everyone in the new zone.
         if send_location_entry:
-            for zone_object in itertools.ifilter(lambda x: x.owner_id > 0, self.get_all_zone_objects()):
+            zone_objects = self.get_zone_objects(new_zone_id) 
+            
+            for zone_object in itertools.ifilter(lambda x: x.owner_id > 0, zone_objects):
                 child_object.handle_send_location_entry(zone_object.owner_id)
+
+            has_watcher, watcher = self.has_zone_watcher(new_zone_id)
+            if has_watcher:
+                child_object.handle_send_location_entry(watcher)
+                
 
         # also send a departure to everyone in the object's old zone...
         if send_location_departure:
-            for zone_object in itertools.ifilter(lambda x: x.owner_id > 0, self.get_all_zone_objects()):
-                child_object.handle_send_departure(zone_object.owner_id)
+            zone_objects = self.get_zone_objects(child_zone_id)
+                
+            for zone_object in itertools.ifilter(lambda x: x.owner_id > 0, zone_objects):
+                if child_object.do_id != self._do_id:
+                    child_object.handle_send_departure(zone_object.owner_id)
+                    
+            has_watcher, watcher = self.has_zone_watcher(child_zone_id)
+            if has_watcher:
+                child_object.handle_send_location_entry(watcher)
 
         # acknowledge the object's location change was successful.
         if child_object.owner_id:
@@ -529,6 +572,53 @@ class StateObject(object):
         # to see before completing the interest change, start sending object generates...
         for zone_object in zone_objects:
             zone_object.handle_send_location_entry(self._owner_id)
+            
+    def handle_get_zones_objects_2(self, sender, di):
+        contextId = di.get_uint32()
+        zone_ids = [di.get_uint32() for _ in range(di.get_uint16())]
+            
+        zone_objects = self.get_zones_objects(zone_ids)
+        parent_object = self._network.object_manager.get_object(self._parent_id)
+        if parent_object:
+            pobjs = parent_object.get_zones_objects(zone_ids)
+            for p in pobjs:
+                if p.do_id != self._do_id and p.do_id != parent_object.do_id:
+                    zone_objects.append(p)
+
+        s = sender
+        if self._owner_id:
+            s = self._owner_id
+
+        # tell the Client Agent that the they should expect this
+        # many objects to have been generated before completing the zone change...
+        datagram = io.NetworkDatagram()
+        datagram.add_header(s, self._do_id,
+            types.STATESERVER_OBJECT_GET_ZONES_OBJECTS_2_RESP)
+
+        datagram.add_uint32(contextId)
+        datagram.add_uint16(len(zone_objects))
+        for zone_object in zone_objects:
+            datagram.add_uint64(zone_object.do_id)
+
+        self._network.handle_send_connection_datagram(datagram)
+
+        # once we've sent the objects we expect the client,
+        # to see before completing the interest change, start sending object generates...
+        for zone_object in zone_objects:
+            zone_object.handle_send_location_entry(sender)
+            
+        # now add the zone ids to the sender's watch list
+        if not self._watch_list.has_key(sender):
+            self._watch_list[sender] = []
+        for zone_id in zone_ids:
+            self._watch_list[sender].append(zone_id)
+            
+    def handle_clear_watch(self, sender, di):
+        if self._watch_list.has_key(sender):
+            zone_id = di.get_uint32()
+            self._watch_list[sender].remove(zone_id)
+        else:
+            self.notify.warning("Sender %d tried to clear watch zone but has no watch list!" %sender)
 
     def handle_send_update_field(self, channel, sender, field, field_args):
         datagram = io.NetworkDatagram()
@@ -706,6 +796,7 @@ class StateObjectManager(object):
 
     def __init__(self):
         self.objects = {}
+        self.context_queue = SimpleContextQueue()
 
     def has_object(self, do_id):
         return do_id in self.objects
@@ -794,7 +885,7 @@ class StateServer(io.NetworkConnector):
     def handle_object_datagram(self, channel, sender, message_type, di):
         state_object = self.object_manager.get_object(channel)
         if not state_object:
-            self.notify.debug('Received an unknown message type: '
+            self.notify.warning('Received an unknown message type: '
                 '%d from channel: %d!' % (message_type, sender))
 
             return
