@@ -3,7 +3,7 @@
 OTP server implementation from AnythingTechPro with adaptions for 2010 Toontown source.
 
 ### Dependencies
-****ATTENTION!*** If you already downloaded the Panda3D version for AI/Districts on the Toontown repository skip this step.*
+****ATTENTION!*** If you already downloaded the Panda3D version for AI/Districts on the Toontown repository skip downloading this.*
 You will need a special Panda3D version, which you can get [here](https://www.dropbox.com/s/0i7puwbqz9b4wt9/Panda3D-1.10.0-x64.exe?dl=1) ***(Alternatively, you can build it yourself [here](https://github.com/Astron/panda3d))***
 ----
 Execute the following script to install the missing modules for the server:
