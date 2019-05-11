@@ -802,7 +802,6 @@ class StateObjectManager(object):
         return do_id in self.objects
 
     def add_object(self, state_object):
-        print "add %d" %state_object.do_id
         if self.has_object(state_object.do_id):
             return
 
@@ -810,7 +809,6 @@ class StateObjectManager(object):
         state_object.setup()
 
     def remove_object(self, state_object):
-        print "remove %d" %state_object.do_id
         if not self.has_object(state_object.do_id):
             return
 
