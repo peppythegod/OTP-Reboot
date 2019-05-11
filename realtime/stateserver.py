@@ -802,6 +802,7 @@ class StateObjectManager(object):
         return do_id in self.objects
 
     def add_object(self, state_object):
+        print "add %d" %state_object.do_id
         if self.has_object(state_object.do_id):
             return
 
@@ -809,6 +810,7 @@ class StateObjectManager(object):
         state_object.setup()
 
     def remove_object(self, state_object):
+        print "remove %d" %state_object.do_id
         if not self.has_object(state_object.do_id):
             return
 
@@ -885,7 +887,7 @@ class StateServer(io.NetworkConnector):
     def handle_object_datagram(self, channel, sender, message_type, di):
         state_object = self.object_manager.get_object(channel)
         if not state_object:
-            self.notify.warning('Received an unknown message type: '
+            self.notify.debug('Received an unknown message type: '
                 '%d from channel: %d!' % (message_type, sender))
 
             return
@@ -927,9 +929,6 @@ class StateServer(io.NetworkConnector):
 
     def handle_delete_shard_objects(self, shard):
         for state_object in list(self.object_manager.objects.values()):
-            if not state_object.owner_id:
-                continue
-
             if state_object.ai_channel != shard.channel:
                 continue
 
@@ -940,7 +939,6 @@ class StateServer(io.NetworkConnector):
 
             self.object_manager.remove_object(state_object)
 
-        self.handle_send_update_shard(shard)
         self.shard_manager.remove_shard(shard)
 
     def handle_send_disconnect(self, channel, shard):
