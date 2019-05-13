@@ -691,7 +691,7 @@ class StateObject(object):
         #
         #    return
 
-        if not self._network.shard_manager.has_shard(sender):
+        if not self._network.shard_manager.has_shard(sender) and sender != types.UD_CHANNEL:
             avatar_id = self._network.get_avatar_id_from_connection_channel(sender)
             if not avatar_id:
                 self.notify.warning('Cannot handle field update for field: %s dclass: %s, '
@@ -984,7 +984,7 @@ class StateServer(io.NetworkConnector):
             zone_id, dc_class, has_other, di)
 
         # TODO FIXME: find a better way to do this...
-        if self.shard_manager.has_shard(sender):
+        if self.shard_manager.has_shard(sender) or sender == types.UD_CHANNEL:
             state_object.ai_channel = sender
 
         self.object_manager.add_object(state_object)
