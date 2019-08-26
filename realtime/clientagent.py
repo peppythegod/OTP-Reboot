@@ -1311,6 +1311,7 @@ class Client(io.NetworkHandler):
             kill_zones = []
             interest = self._interest_manager.get_interest_object_by_id(interestId)
             for zone in interest.getZones():
+                print "killing zone ", zone
                 if len(self.lookup_interest(interest.getParent(), zone)) == 1:
                     kill_zones.append(zone)
             
@@ -1336,7 +1337,6 @@ class Client(io.NetworkHandler):
                 newZones.append(zone)
                 
         if self._interest_manager.has_interest_object_id(interest.getId()):
-            self.notify.info("Updating already existing interest")
             previousInterest = self._interest_manager.get_interest_object_by_id(interest.getId())
             killedZones = []
             for zone in previousInterest.getZones():
@@ -1363,6 +1363,7 @@ class Client(io.NetworkHandler):
         datagram.add_uint32(interest.getContext())
         datagram.add_uint16(len(newZones))
         for zone in newZones:
+            print "zone interest ", zone
             datagram.add_uint32(zone)
             
         self.network.handle_send_connection_datagram(datagram)
