@@ -21,7 +21,6 @@ from realtime import io
 from realtime import types
 from realtime.notifier import notify
 
-
 class DatabaseError(RuntimeError):
     """
     An database specific runtime error

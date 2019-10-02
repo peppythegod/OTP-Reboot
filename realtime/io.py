@@ -15,7 +15,6 @@ from direct.distributed.PyDatagramIterator import PyDatagramIterator
 from realtime import types
 from realtime.notifier import notify
 
-
 class NetworkError(RuntimeError):
     """
     A network specific runtime error

@@ -17,8 +17,8 @@ clientagent-max-channels 1000001000
 clientagent-min-channels 1000000000
 clientagent-dbm-filename databases/database.dbm
 clientagent-dbm-mode c
-clientagent-version no_version_set
-clientagent-hash-val 0
+clientagent-version sv1.0.47.38
+clientagent-hash-val 2708491968
 
 # StateServer:
 stateserver-connect-address 127.0.0.1

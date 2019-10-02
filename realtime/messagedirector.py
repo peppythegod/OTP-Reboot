@@ -14,7 +14,6 @@ from realtime import io
 from realtime import types
 from realtime.notifier import notify
 
-
 class MessageError(RuntimeError):
     """
     An message director specific runtime error

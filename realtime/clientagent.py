@@ -38,7 +38,6 @@ ESSENTIAL_COMPLETE_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE,
 
 PERMA_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE, OTP_ZONE_ID_DISTRICTS, OTP_ZONE_ID_DISTRICTS_STATS, OTP_ZONE_ID_MANAGEMENT]
 
-
 class ClientOperation(FSM):
     notify = notify.new_category('ClientOperation')
 
@@ -1186,7 +1185,7 @@ class Client(io.NetworkHandler):
 
         if message_type == types.CLIENT_HEARTBEAT:
             pass
-        elif message_type == types.CLIENT_LOGIN_2:
+        elif message_type == types.CLIENT_LOGIN_TOONTOWN:
             self.handle_login(di)
         elif message_type == types.CLIENT_DISCONNECT:
             self.handle_disconnect()
@@ -1493,7 +1492,7 @@ class Client(io.NetworkHandler):
 
             return
 
-        if token_type != types.CLIENT_LOGIN_2_BLUE:
+        if token_type != types.CLIENT_LOGIN_3_DISL_TOKEN:
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_INVALID_PLAY_TOKEN_TYPE,
                 'Invalid play token type: %d!' % (
                     token_type))
@@ -1510,10 +1509,17 @@ class Client(io.NetworkHandler):
         datagram.add_string('All Ok')
         datagram.add_string(play_token)
         datagram.add_uint8(1)
+        datagram.add_string('YES')
+        datagram.add_string('YES')
+        datagram.add_string('YES')
         datagram.add_uint32(int(time.time()))
         datagram.add_uint32(int(time.clock()))
-        datagram.add_uint8(1)
+        datagram.add_string('FULL')
+        datagram.add_string('YES')
+        datagram.add_string(time.strftime('%Y-%m-%d'))
         datagram.add_int32(1000 * 60 * 60)
+        datagram.add_string('NO_PARENT_ACCOUNT')
+        datagram.add_string(play_token)
         self.handle_send_datagram(datagram)
 
     def handle_get_shard_list(self):
@@ -1661,9 +1667,20 @@ class Client(io.NetworkHandler):
             name_indices.append(di.get_uint16())
             name_flags.append(di.get_uint16())
         except:
-            return self.handle_disconnect()
+            self.handle_send_disconnect(types.CLIENT_DISCONNECT_TRUNCATED_DATAGRAM,
+                'Received truncated datagram from channel: %d!' % self._channel)
+            return
 
-        #TODO: Actually parse and set the name pattern name.
+        pattern = [
+            (name_indices[0], name_flags[0]),
+            (name_indices[1], name_flags[1]),
+            (name_indices[2], name_flags[2]),
+            (name_indices[3], name_flags[3])]
+
+        self.network.account_manager.handle_operation(SetNamePatternFSM, self,
+            self.__handle_set_name_pattern_resp, avatar_id, pattern)
+
+    def __handle_set_name_pattern_resp(self, avatar_id):
         datagram = io.NetworkDatagram()
         datagram.add_uint16(types.CLIENT_SET_NAME_PATTERN_ANSWER)
         datagram.add_uint32(avatar_id)
