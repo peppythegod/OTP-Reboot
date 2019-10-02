@@ -28,6 +28,7 @@ from realtime import util
 
 from game.OtpDoGlobals import *
 from game import ZoneUtil
+from game.NameGenerator import NameGenerator
 
 ESSENTIAL_COMPLETE_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE, 
     OTP_ZONE_ID_MANAGEMENT, 
@@ -923,6 +924,82 @@ class SetAvatarZonesFSM(ClientOperation):
     def exitSetField(self):
         self.notify.debug("SetAvatarZonesFSM.exitSetField()")
 
+class SetNamePatternFSM(ClientOperation):
+    notify = notify.new_category('SetNamePatternFSM')
+
+    def __init__(self, manager, client, callback, avatar_id, pattern):
+        self.notify.debug("SetNamePatternFSM.__init__(%s, %s, %s, %s, %s)" % (str(manager), str(client),
+            str(callback), str(avatar_id), str(pattern)))
+
+        ClientOperation.__init__(self, manager, client, callback)
+
+        self._avatar_id = avatar_id
+        self._pattern = pattern
+        self._callback = callback
+        self._dc_class = None
+        self._fields = {}
+
+    def enterStart(self):
+        self.notify.debug("SetNamePatternFSM.enterQuery()")
+
+        def response(dclass, fields):
+            self.notify.debug("SetNamePatternFSM.enterQuery.response(%s, %s)" % (str(dclass), str(fields)))
+
+            self._dc_class = dclass
+            self._fields = fields
+            self.request('SetPatternName')
+
+        self.manager.network.database_interface.query_object(self.client.channel,
+            types.DATABASE_CHANNEL,
+            self._avatar_id,
+            response,
+            self.manager.network.dc_loader.dclasses_by_name['DistributedToon'])
+
+    def exitStart(self):
+        self.notify.debug("SetNamePatternFSM.exitQuery()")
+
+    def enterSetPatternName(self):
+        self.notify.debug("SetNamePatternFSM.enterSetPatternName()")
+
+        nameGenerator = NameGenerator()
+
+        # Render the pattern into a string:
+        parts = []
+        for p, f in self._pattern:
+            part = nameGenerator.nameDictionary.get(p, ('', ''))[1]
+            if f:
+                part = part[:1].upper() + part[1:]
+            else:
+                part = part.lower()
+
+            parts.append(part)
+
+        # Merge 2&3 (the last name) as there should be no space:
+        parts[2] += parts.pop(3)
+        while '' in parts:
+            parts.remove('')
+
+        name = ' '.join(parts)
+        del nameGenerator
+
+        new_fields = {
+             'setName': (name,)
+        }
+
+        #self.notify.warning("New fields are \n%s" % (str(self._fields)))
+
+        self.manager.network.database_interface.update_object(self.client.channel,
+            types.DATABASE_CHANNEL,
+            self._avatar_id,
+            self.manager.network.dc_loader.dclasses_by_name['DistributedToon'],
+            new_fields)
+
+        # We're all done
+        self.cleanup(True, self._avatar_id)
+
+    def exitSetPatternName(self):
+        self.notify.debug("SetNamePatternFSM.exitSetPatternName()")
+
 class ClientAccountManager(ClientOperationManager):
     notify = notify.new_category('ClientAccountManager')
 
@@ -1110,7 +1187,6 @@ class VisibleObject:
         
     def getId(self):
         return self.id
-        
 
 class Client(io.NetworkHandler):
     notify = notify.new_category('Client')
@@ -1137,7 +1213,6 @@ class Client(io.NetworkHandler):
         self._interest_delete_queue = []
         
         self.idtest = random.random()
-
 
     @property
     def authenticated(self):
@@ -1504,9 +1579,10 @@ class Client(io.NetworkHandler):
 
     def __handle_login_resp(self, play_token):
         datagram = io.NetworkDatagram()
-        datagram.add_uint16(types.CLIENT_LOGIN_2_RESP)
+        datagram.add_uint16(types.CLIENT_LOGIN_TOONTOWN_RESP)
         datagram.add_uint8(0)
         datagram.add_string('All Ok')
+        datagram.add_uint32(1)
         datagram.add_string(play_token)
         datagram.add_uint8(1)
         datagram.add_string('YES')
