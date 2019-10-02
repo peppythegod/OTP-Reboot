@@ -7,7 +7,7 @@
 import __builtin__
 import os
 
-from panda3d.core import loadPrcFile
+from panda3d.core import loadPrcFile, VirtualFileSystem
 
 if os.path.exists('config/general.prc'):
     loadPrcFile('config/general.prc')
@@ -19,6 +19,7 @@ from realtime.notifier import notify
 
 __builtin__.config = get_config_showbase()
 __builtin__.task_mgr = task_mgr
+__builtin__.vfs = VirtualFileSystem.get_global_ptr()
 
 from realtime import io, types, clientagent, messagedirector, \
     stateserver, database
