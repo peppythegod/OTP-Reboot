@@ -1260,7 +1260,7 @@ class Client(io.NetworkHandler):
 
         if message_type == types.CLIENT_HEARTBEAT:
             pass
-        elif message_type == types.CLIENT_LOGIN_TOONTOWN:
+        elif message_type == types.CLIENT_LOGIN_2:
             self.handle_login(di)
         elif message_type == types.CLIENT_DISCONNECT:
             self.handle_disconnect()
@@ -1567,7 +1567,7 @@ class Client(io.NetworkHandler):
 
             return
 
-        if token_type != types.CLIENT_LOGIN_3_DISL_TOKEN:
+        if token_type != types.CLIENT_LOGIN_2_BLUE:
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_INVALID_PLAY_TOKEN_TYPE,
                 'Invalid play token type: %d!' % (
                     token_type))
@@ -1579,23 +1579,15 @@ class Client(io.NetworkHandler):
 
     def __handle_login_resp(self, play_token):
         datagram = io.NetworkDatagram()
-        datagram.add_uint16(types.CLIENT_LOGIN_TOONTOWN_RESP)
+        datagram.add_uint16(types.CLIENT_LOGIN_2_RESP)
         datagram.add_uint8(0)
         datagram.add_string('All Ok')
-        datagram.add_uint32(1)
         datagram.add_string(play_token)
         datagram.add_uint8(1)
-        datagram.add_string('YES')
-        datagram.add_string('YES')
-        datagram.add_string('YES')
         datagram.add_uint32(int(time.time()))
         datagram.add_uint32(int(time.clock()))
-        datagram.add_string('FULL')
-        datagram.add_string('YES')
-        datagram.add_string(time.strftime('%Y-%m-%d'))
+        datagram.add_uint8(1)
         datagram.add_int32(1000 * 60 * 60)
-        datagram.add_string('NO_PARENT_ACCOUNT')
-        datagram.add_string(play_token)
         self.handle_send_datagram(datagram)
 
     def handle_get_shard_list(self):
