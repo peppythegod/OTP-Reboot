@@ -1212,6 +1212,10 @@ class Client(io.NetworkHandler):
         self._context_to_callback = {}
         self._interest_delete_queue = []
         
+        #! This is meant to be a temporary hacky way to get streets working properly!
+        self._street_zones = (2100, 2200, 2300, 1100, 1200, 1300, 3100, 3200, 3300, 4100, 4200, 4300, 5100, 5200, 5300, 9100, 9200)
+        self._forced_zones = {}
+        
         self.idtest = random.random()
 
     @property
@@ -1384,10 +1388,22 @@ class Client(io.NetworkHandler):
         if self._interest_manager.has_interest_object_id(interestId):
             kill_zones = []
             interest = self._interest_manager.get_interest_object_by_id(interestId)
+                            
             for zone in interest.getZones():
-                print "killing zone ", zone
                 if len(self.lookup_interest(interest.getParent(), zone)) == 1:
                     kill_zones.append(zone)
+                    if self._forced_zones.has_key(zone):
+                        streetZone = ZoneUtil.getBranchZone(zone)
+                        
+                        count = 0
+                        for z in self._forced_zones.values():
+                            if z == streetZone:
+                                count += 1
+                        
+                        if count == 1:
+                            kill_zones.append(streetZone)
+                            
+                        del self._forced_zones[zone]
             
             self.close_zones(kill_zones, interest.getParent())
             self.handle_interest_done(interest.getId(), interest.getContext())
@@ -1404,6 +1420,13 @@ class Client(io.NetworkHandler):
                     self._channel))
             return
             
+        # we hack zones to add base street zone
+        for zone in interest.getZones():
+            streetZone = ZoneUtil.getBranchZone(zone)
+            if streetZone in self._street_zones and zone not in self._forced_zones.keys():
+                if streetZone not in self._forced_zones.values():
+                    interest.addZone(streetZone)
+                self._forced_zones[zone] = streetZone
         
         newZones = []
         for zone in interest.getZones():
@@ -1413,12 +1436,25 @@ class Client(io.NetworkHandler):
         if self._interest_manager.has_interest_object_id(interest.getId()):
             previousInterest = self._interest_manager.get_interest_object_by_id(interest.getId())
             killedZones = []
+            hasHackedStreet = False
             for zone in previousInterest.getZones():
                 if len(self.lookup_interest(previousInterest.getParent(), zone)) > 1:
                     continue
                 
                 if interest.getParent() != previousInterest.getParent() or not interest.hasZone(zone):
                     killedZones.append(zone)
+                    if self._forced_zones.has_key(zone):
+                        streetZone = ZoneUtil.getBranchZone(zone)
+                        
+                        count = 0
+                        for z in self._forced_zones.values():
+                            if z == streetZone:
+                                count += 1
+                        
+                        if count == 1:
+                            killedZones.append(streetZone)
+                            
+                        del self._forced_zones[zone]
                     
             self.close_zones(killedZones, interest.getParent())
             self._interest_manager.remove_interest_object(self._interest_manager.has_interest_object_id(interest.getId(), True))
