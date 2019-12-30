@@ -29,6 +29,8 @@ from realtime import util
 from game.OtpDoGlobals import *
 from game import ZoneUtil
 from game.NameGenerator import NameGenerator
+from game import genDNAFileName, extractGroupName
+from game.dna.DNAParser import loadDNAFileAI, DNAStorage
 
 ESSENTIAL_COMPLETE_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE, 
     OTP_ZONE_ID_MANAGEMENT, 
@@ -1074,14 +1076,14 @@ class InterestManager(object):
         
     def has_interest_object_zone(self, zoneId):
         for interest in self._interest_objects:
-            if interest.hasZone(zoneId):
+            if interest.hasZone(zoneId) or interest.hasView(zoneId):
                 return True
                 
         return False
         
-    def has_interest_object_parent_and_zone(self, parentId, zoneId, getObj = False):
+    def has_interest_object_parent_and_zone(self, parentId, zoneId, getObj = False, includeViews = False):
         for interest in self._interest_objects:
-            if interest.getParent() == parentId and interest.hasZone(zoneId):
+            if interest.getParent() == parentId and (interest.hasZone(zoneId) or (includeViews and interest.hasView(zoneId))):
                 if getObj:
                     return interest
                 return True
@@ -1130,6 +1132,7 @@ class Interest:
     
     def __init__(self):
         self.zones = ZoneList()
+        self.vis_zones = set()
         self.id = -1
         self.context = -1
         self.parent = -1
@@ -1163,6 +1166,15 @@ class Interest:
         
     def hasZone(self, zone):
         return self.zones.hasZone(zone)
+        
+    def setVisZones(self, zones):
+        self.vis_zones = zones
+        
+    def getVisZones(self):
+        return self.vis_zones
+        
+    def hasView(self, zone):
+        return zone in self.vis_zones
         
 class VisibleObject:
     def __init__(self):
@@ -1216,6 +1228,8 @@ class Client(io.NetworkHandler):
         self._street_zones = (2100, 2200, 2300, 1100, 1200, 1300, 3100, 3200, 3300, 4100, 4200, 4300, 5100, 5200, 5300, 9100, 9200)
         self._forced_zones = {}
         
+        self._dna_stores = {}
+        
         self.idtest = random.random()
 
     @property
@@ -1230,9 +1244,11 @@ class Client(io.NetworkHandler):
         self._context_id += 1
         return self._context_id
 
-    def has_seen_object(self, do_id):
+    def has_seen_object(self, do_id, erase = False):
         for zone_id, seen_objects in list(self._seen_objects.items()):
             if do_id in seen_objects:
+                if erase:
+                    self._seen_objects[zone_id].remove(do_id)
                 return True
 
         return False
@@ -1264,8 +1280,8 @@ class Client(io.NetworkHandler):
 
         if message_type == types.CLIENT_HEARTBEAT:
             pass
-        elif message_type == types.CLIENT_LOGIN_2:
-            self.handle_login(di)
+        elif message_type == types.CLIENT_LOGIN_2 or message_type == 125: #125 == CLIENT_LOGIN_TOONTOWN
+            self.handle_login(di, message_type == 125)
         elif message_type == types.CLIENT_DISCONNECT:
             self.handle_disconnect()
         else:
@@ -1385,31 +1401,62 @@ class Client(io.NetworkHandler):
                     self._channel))
             return
             
+        old_vis_zones = set()
+        kill_zones = []
         if self._interest_manager.has_interest_object_id(interestId):
-            kill_zones = []
             interest = self._interest_manager.get_interest_object_by_id(interestId)
                             
             for zone in interest.getZones():
                 if len(self.lookup_interest(interest.getParent(), zone)) == 1:
                     kill_zones.append(zone)
-                    if self._forced_zones.has_key(zone):
-                        streetZone = ZoneUtil.getBranchZone(zone)
                         
-                        count = 0
-                        for z in self._forced_zones.values():
-                            if z == streetZone:
-                                count += 1
-                        
-                        if count == 1:
-                            kill_zones.append(streetZone)
-                            
-                        del self._forced_zones[zone]
+                    old_zone_id = zone
+                    old_zone_in_street_branch = self.get_in_street_branch(old_zone_id)
+                    if old_zone_in_street_branch:
+                        old_branch_zone_id = ZoneUtil.getBranchZone(old_zone_id)
+                        if old_zone_id % 100 != 0:
+                            old_vis_zones.update(self.get_vis_branch_zones(old_zone_id))
+                            for zone_id in old_vis_zones:
+                                print "0 VIS KILL, ", zone_id
+                                kill_zones.append(zone_id)
+                        del self._dna_stores[old_branch_zone_id]
             
             self.close_zones(kill_zones, interest.getParent())
             self.handle_interest_done(interest.getId(), interest.getContext())
             self._interest_manager.remove_interest_object(interest)
         else:
             self.notify.info("Delete for unknown interest id %d" %interestId)
+            
+    def get_in_street_branch(self, zone_id):
+        if not ZoneUtil.isPlayground(zone_id):
+            where = ZoneUtil.getWhereName(zone_id, True)
+            return where == 'street'
+
+        return False
+        
+    def get_vis_branch_zones(self, zone_id):
+        branch_zone_id = ZoneUtil.getBranchZone(zone_id)
+        dnaStore = self._dna_stores.get(branch_zone_id)
+        if not dnaStore:
+            dnaStore = DNAStorage()
+            dnaFileName = genDNAFileName(branch_zone_id)
+            loadDNAFileAI(dnaStore, dnaFileName, None)
+            self._dna_stores[branch_zone_id] = dnaStore
+
+        zoneVisDict = {}
+        for i in xrange(dnaStore.getNumDNAVisGroupsAI()):
+            groupFullName = dnaStore.getDNAVisGroupName(i)
+            visGroup = dnaStore.getDNAVisGroupAI(i)
+            visZoneId = int(extractGroupName(groupFullName))
+            visZoneId = ZoneUtil.getTrueZoneId(visZoneId, zone_id)
+            visibles = []
+            for i in xrange(visGroup.getNumVisibles()):
+                visibles.append(int(visGroup.visibles[i]))
+
+            visibles.append(ZoneUtil.getBranchZone(visZoneId))
+            zoneVisDict[visZoneId] = visibles
+
+        return zoneVisDict[zone_id]
             
     def handle_add_interest(self, di): 
         try:
@@ -1419,50 +1466,72 @@ class Client(io.NetworkHandler):
                 'Received truncated datagram from channel: %d!' % (
                     self._channel))
             return
-            
-        # we hack zones to add base street zone
-        for zone in interest.getZones():
-            streetZone = ZoneUtil.getBranchZone(zone)
-            if streetZone in self._street_zones and zone not in self._forced_zones.keys():
-                if streetZone not in self._forced_zones.values():
-                    interest.addZone(streetZone)
-                self._forced_zones[zone] = streetZone
-        
+        print "============="
         newZones = []
         for zone in interest.getZones():
             if not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone):
                 newZones.append(zone)
+            else:
+                if len(interest.getZones()) == 1:
+                    # This interest was already created and letting it go through empty would erase previous interest zones
+                    print "saving interest"
+                    self.handle_interest_done(interest.getId(), interest.getContext())
+                    return
                 
+        new_vis_zones = set()
+        for new_zone_id in newZones:
+            print "searching vis zones for ", new_zone_id
+            new_zone_in_street_branch = self.get_in_street_branch(new_zone_id)
+            if new_zone_in_street_branch:
+                new_branch_zone_id = ZoneUtil.getBranchZone(new_zone_id)
+                if new_zone_id % 100 != 0:
+                    new_vis_zones.update(self.get_vis_branch_zones(new_zone_id))
+                    print "new_vis_zones are ", new_vis_zones
+        
+        interest.setVisZones(new_vis_zones)
+             
+        killedZones = []
+        old_vis_zones = set()
         if self._interest_manager.has_interest_object_id(interest.getId()):
             previousInterest = self._interest_manager.get_interest_object_by_id(interest.getId())
-            killedZones = []
-            hasHackedStreet = False
+            
             for zone in previousInterest.getZones():
                 if len(self.lookup_interest(previousInterest.getParent(), zone)) > 1:
                     continue
                 
                 if interest.getParent() != previousInterest.getParent() or not interest.hasZone(zone):
                     killedZones.append(zone)
-                    if self._forced_zones.has_key(zone):
-                        streetZone = ZoneUtil.getBranchZone(zone)
-                        
-                        count = 0
-                        for z in self._forced_zones.values():
-                            if z == streetZone:
-                                count += 1
-                        
-                        if count == 1:
-                            killedZones.append(streetZone)
-                            
-                        del self._forced_zones[zone]
+                
+            old_interest_vis_zones = previousInterest.getVisZones()
+            #for zone_id in old_interest_vis_zones:
+            #    if zone_id in newZones and self.get_in_street_branch(new_zone_id):
+            #        print "flush ", zone_id
+            #        newZones.remove(zone_id)
+            
+            interest_vis_zones = interest.getVisZones()
+            for zone_id in old_interest_vis_zones.difference(interest_vis_zones):
+                print "VIS KILL, ", zone_id
+                killedZones.append(zone_id)
+                
+            for zone_id in interest_vis_zones.difference(old_interest_vis_zones):
+                if zone_id not in newZones and not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone_id):
+                    print "VISS ADD, ", zone_id
+                    newZones.append(zone_id)
                     
             self.close_zones(killedZones, interest.getParent())
             self._interest_manager.remove_interest_object(self._interest_manager.has_interest_object_id(interest.getId(), True))
+        else:
+            newZones.extend(list(interest.getVisZones()))
+        
+        finalZones = []
+        for zone in newZones:
+            if not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone, False, True):
+                finalZones.append(zone)
         
         self._interest_manager.add_interest_object(interest)
             
         op = InterestOperation(self, 500, interest.getId(), interest.getContext(),
-            interest.getParent(), newZones, self.channel)
+            interest.getParent(), finalZones, self.channel)
         self._pending_interests[interest.getContext()] = interest
 
         self._deferred_callback = util.DeferredCallback(self.handle_interest_complete_callback, interest.getContext())
@@ -1471,11 +1540,12 @@ class Client(io.NetworkHandler):
         datagram.add_header(interest.getParent(), self.channel,
             types.STATESERVER_OBJECT_GET_ZONES_OBJECTS_2)
         datagram.add_uint32(interest.getContext())
-        datagram.add_uint16(len(newZones))
-        for zone in newZones:
+        datagram.add_uint16(len(finalZones))
+        for zone in finalZones:
             print "zone interest ", zone
             datagram.add_uint32(zone)
             
+        print "=============="
         self.network.handle_send_connection_datagram(datagram)
             
     def handle_interest_done(self, interestId, context):
@@ -1486,6 +1556,7 @@ class Client(io.NetworkHandler):
         self.handle_send_datagram(dg)
         
     def handle_interest_complete_callback(self, complete, contextId):
+        print complete, contextId
         if complete:
             if self._pending_interests.has_key(contextId):
                 interest = self._pending_interests[contextId]
@@ -1576,7 +1647,7 @@ class Client(io.NetworkHandler):
     def is_my_avatar(self, doId):
         return doId == self.get_avatar_id_from_connection_channel(self.channel)
             
-    def handle_login(self, di):
+    def handle_login(self, di, loginTT = False):
         try:
             play_token = di.get_string()
             server_version = di.get_string()
@@ -1589,41 +1660,57 @@ class Client(io.NetworkHandler):
 
             return
 
-        if server_version != self.network.server_version:
+        if server_version != self.network.server_version and server_version != "sv1.0.47.38":
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_BAD_VERSION,
                 'Invalid server version: %s, expected: %s!' % (
                     server_version, self.network.server_version))
 
             return
 
-        if hash_val != self.network.server_hash_val:
+        if hash_val != self.network.server_hash_val and 0: # Disabled for testing with EXE
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_BAD_DCHASH,
                 'Got an invalid dc hash value: %d expected: %d!' % (
                     hash_val, self.network.server_hash_val))
 
             return
 
-        if token_type != types.CLIENT_LOGIN_2_BLUE:
+        if token_type != types.CLIENT_LOGIN_2_BLUE and token_type != 4:
             self.handle_send_disconnect(types.CLIENT_DISCONNECT_INVALID_PLAY_TOKEN_TYPE,
                 'Invalid play token type: %d!' % (
                     token_type))
 
             return
 
-        callback = lambda: self.__handle_login_resp(play_token)
+        callback = lambda: self.__handle_login_resp(play_token, loginTT)
         self.network.account_manager.handle_operation(LoadAccountFSM, self, callback, play_token)
 
-    def __handle_login_resp(self, play_token):
+    def __handle_login_resp(self, play_token, loginTT = False):
         datagram = io.NetworkDatagram()
-        datagram.add_uint16(types.CLIENT_LOGIN_2_RESP)
+        datagram.add_uint16(types.CLIENT_LOGIN_2_RESP if not loginTT else 126)
         datagram.add_uint8(0)
         datagram.add_string('All Ok')
-        datagram.add_string(play_token)
-        datagram.add_uint8(1)
-        datagram.add_uint32(int(time.time()))
-        datagram.add_uint32(int(time.clock()))
-        datagram.add_uint8(1)
-        datagram.add_int32(1000 * 60 * 60)
+        if loginTT:
+            datagram.add_uint32(0) # account number
+            datagram.add_string("") # account name
+            datagram.add_uint8(1) # account name approved
+            datagram.add_string("YES") # open chat enabled
+            datagram.add_string("YES") # create friends with chat
+            datagram.add_string("") # chat code creation rule ?
+            datagram.add_uint32(int(time.time())) # sec
+            datagram.add_uint32(int(time.clock())) # usec
+            datagram.add_string("FULL") # access
+            datagram.add_string("YES") # whitelist enabled
+            datagram.add_string("") # last logged in
+            datagram.add_int32(100000) # account days
+            datagram.add_string("WITH_PARENT_ACCOUNT")
+            datagram.add_string("") # username
+        else:
+            datagram.add_string(play_token)
+            datagram.add_uint8(1)
+            datagram.add_uint32(int(time.time()))
+            datagram.add_uint32(int(time.clock()))
+            datagram.add_uint8(1)
+            datagram.add_int32(1000 * 60 * 60)
         self.handle_send_datagram(datagram)
 
     def handle_get_shard_list(self):
@@ -2011,13 +2098,6 @@ class Client(io.NetworkHandler):
         zone_id = di.get_uint32()
         dc_id = di.get_uint16()
 
-        # check to see if we have interest in this object's zone, and if we
-        # do then we can safely send generate for the object...
-        #if not self._interest_manager.has_interest_zone(zone_id):
-        #    return
-        if not self._interest_manager.has_interest_object_zone(zone_id):
-            return
-
         # if the object is in the list of owned objects, we do not want to
         # generate this object, as it was already generated elsewhere...
         if do_id in self._owned_objects:
@@ -2028,31 +2108,36 @@ class Client(io.NetworkHandler):
         if self._seen_objects.has_key(zone_id) and do_id in self._seen_objects[zone_id]:
             return
 
-        datagram = io.NetworkDatagram()
-        if not has_other:
-            datagram.add_uint16(types.CLIENT_CREATE_OBJECT_REQUIRED)
-        else:
-            datagram.add_uint16(types.CLIENT_CREATE_OBJECT_REQUIRED_OTHER)
+        # check to see if we have interest in this object's zone, and if we
+        # do then we can safely send generate for the object...
+        if self._interest_manager.has_interest_object_zone(zone_id):
+            datagram = io.NetworkDatagram()
+            if not has_other:
+                datagram.add_uint16(types.CLIENT_CREATE_OBJECT_REQUIRED)
+            else:
+                datagram.add_uint16(types.CLIENT_CREATE_OBJECT_REQUIRED_OTHER)
 
-        #2003:
-        #datagram.add_uint16(dc_id)
-        #datagram.add_uint32(do_id)
-        
-        datagram.add_uint32(parent_id)
-        datagram.add_uint32(zone_id)
-        datagram.add_uint16(dc_id)
-        datagram.add_uint32(do_id)
-        
-        datagram.append_data(di.get_remaining_bytes())
-        self.handle_send_datagram(datagram)
+            #2003:
+            #datagram.add_uint16(dc_id)
+            #datagram.add_uint32(do_id)
+            
+            datagram.add_uint32(parent_id)
+            datagram.add_uint32(zone_id)
+            datagram.add_uint16(dc_id)
+            datagram.add_uint32(do_id)
+            
+            datagram.append_data(di.get_remaining_bytes())
+            self.handle_send_datagram(datagram)
 
-        #seen_objects = self._seen_objects.setdefault(zone_id, [])
-        #seen_objects.append(do_id)
-        if not self._seen_objects.has_key(zone_id):
-            self._seen_objects[zone_id] = []
-        if do_id not in self._seen_objects[zone_id]:
-            self._seen_objects[zone_id].append(do_id)
+            #seen_objects = self._seen_objects.setdefault(zone_id, [])
+            #seen_objects.append(do_id)
+            if not self._seen_objects.has_key(zone_id):
+                self._seen_objects[zone_id] = []
+            if do_id not in self._seen_objects[zone_id]:
+                self._seen_objects[zone_id].append(do_id)
 
+        # even if we are not in the zone of the object, if it's id was being expected
+        # by a pending interest we still have to tell it since some objects are moving throughout branches
         # check to see if we have a pending interest handle that is looking
         # to see when this object generate has arrived.
         if do_id in self._pending_objects:
@@ -2074,7 +2159,7 @@ class Client(io.NetworkHandler):
 
         # only delete the object if we've previously seen the objects
         # generate request sent by the StateServer...
-        if not self.has_seen_object(do_id):
+        if not self.has_seen_object(do_id, True):
             return
 
         datagram = io.NetworkDatagram()

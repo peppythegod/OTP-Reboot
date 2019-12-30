@@ -598,6 +598,7 @@ class StateObject(object):
         datagram.add_uint32(contextId)
         datagram.add_uint16(len(zone_objects))
         for zone_object in zone_objects:
+            print "dclass, ", zone_object.dc_class.get_name(), zone_object._zone_id
             datagram.add_uint64(zone_object.do_id)
 
         self._network.handle_send_connection_datagram(datagram)
@@ -616,7 +617,8 @@ class StateObject(object):
     def handle_clear_watch(self, sender, di):
         if self._watch_list.has_key(sender):
             zone_id = di.get_uint32()
-            self._watch_list[sender].remove(zone_id)
+            if zone_id in self._watch_list[sender]:
+                self._watch_list[sender].remove(zone_id)
         else:
             self.notify.warning("Sender %d tried to clear watch zone but has no watch list!" %sender)
 

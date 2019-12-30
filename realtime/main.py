@@ -43,7 +43,7 @@ def shutdown_component(component):
 
 def main():
     dc_loader = io.NetworkDCLoader()
-    dc_loader.read_dc_files(['../ToontownOnline/etc/toon2.dc'])
+    dc_loader.read_dc_files(['../ToontownOnline/etc/otp.dc', '../ToontownOnline/etc/toon.dc'])
 
     message_director_address = config.GetString('messagedirector-address', '0.0.0.0')
     message_director_port = config.GetInt('messagedirector-port', 7100)
@@ -82,5 +82,5 @@ def main():
     shutdown_component(state_server)
     shutdown_component(database_server)
 
-if __name__ == '__main__':
-    main()
+
+main()

@@ -106,3 +106,38 @@ MinnieSpeed = 3.2000000000000002
 DonaldSpeed = 3.6800000000000002
 GoofySpeed = 5.2000000000000002
 PlutoSpeed = 5.5
+
+streetPhaseMap = {
+    ToontownCentral: 5,
+    DonaldsDock: 6,
+    MinniesMelodyland: 6,
+    GoofySpeedway: 6,
+    TheBrrrgh: 8,
+    DaisyGardens: 8,
+    FunnyFarm: 8,
+    DonaldsDreamland: 8,
+    OutdoorZone: 8,
+    BossbotHQ: 12,
+    SellbotHQ: 9,
+    CashbotHQ: 10,
+    LawbotHQ: 11,
+    PartyHood: 13
+}
+
+dnaMap = {
+    Tutorial: 'toontown_central',
+    ToontownCentral: 'toontown_central',
+    DonaldsDock: 'donalds_dock',
+    MinniesMelodyland: 'minnies_melody_land',
+    GoofySpeedway: 'goofy_speedway',
+    TheBrrrgh: 'the_burrrgh',
+    DaisyGardens: 'daisys_garden',
+    FunnyFarm: 'not done yet',
+    DonaldsDreamland: 'donalds_dreamland',
+    OutdoorZone: 'outdoor_zone',
+    BossbotHQ: 'cog_hq_bossbot',
+    SellbotHQ: 'cog_hq_sellbot',
+    CashbotHQ: 'cog_hq_cashbot',
+    LawbotHQ: 'cog_hq_lawbot',
+    GolfZone: 'golf_zone'
+}
