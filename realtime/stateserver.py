@@ -494,6 +494,9 @@ class StateObject(object):
         else:
             self.add_child_in_zone(child_object.do_id, new_zone_id)
             send_location_entry = True
+            
+        #if self.object_manager.tracking == child_object.do_id:
+        #    print "yEEEEEEEEEEEEEs ", child_zone_id, new_zone_id
 
         # if this object is entering the new zone, then relay a location
         # generate to everyone in the new zone.
@@ -512,13 +515,15 @@ class StateObject(object):
         if send_location_departure:
             zone_objects = self.get_zone_objects(child_zone_id)
                 
+            has_watcher_at_new, watcher = self.has_zone_watcher(new_zone_id)
+            
             for zone_object in itertools.ifilter(lambda x: x.owner_id > 0, zone_objects):
                 if child_object.do_id != self._do_id:
-                    child_object.handle_send_departure(zone_object.owner_id)
-                    
-            has_watcher, watcher = self.has_zone_watcher(child_zone_id)
-            if has_watcher:
-                child_object.handle_send_location_entry(watcher)
+                    if (has_watcher_at_new and zone_object.owner_id != watcher) or not has_watcher_at_new:
+                        child_object.handle_send_departure(zone_object.owner_id)
+            
+            if has_watcher_at_new:
+                child_object.handle_send_changing_location(watcher)
 
         # acknowledge the object's location change was successful.
         if child_object.owner_id:
@@ -534,6 +539,9 @@ class StateObject(object):
         self.zone_id = new_zone_id
 
         self.handle_changing_location(self._zone_id, new_parent_id, new_zone_id)
+        if self.parent_id:
+            self.handle_send_changing_location(self.parent_id)
+        #self.object_manager.handle_changing_location(self)
 
     def handle_get_zones_objects(self, sender, di):
         zone_ids = [di.get_uint32() for _ in range(di.get_uint16())]
@@ -598,7 +606,9 @@ class StateObject(object):
         datagram.add_uint32(contextId)
         datagram.add_uint16(len(zone_objects))
         for zone_object in zone_objects:
-            print "dclass, ", zone_object.dc_class.get_name(), zone_object._zone_id
+            if zone_object.dc_class.get_name() == "DistributedSuit" and not self.object_manager.tracking:
+                print "will be keeping track of suit %d at %d" %(zone_object.do_id, zone_object.zone_id) 
+                self.object_manager.tracking = zone_object.do_id
             datagram.add_uint64(zone_object.do_id)
 
         self._network.handle_send_connection_datagram(datagram)
@@ -612,7 +622,8 @@ class StateObject(object):
         if not self._watch_list.has_key(sender):
             self._watch_list[sender] = []
         for zone_id in zone_ids:
-            self._watch_list[sender].append(zone_id)
+            if zone_id not in self._watch_list[sender]:
+                self._watch_list[sender].append(zone_id)
             
     def handle_clear_watch(self, sender, di):
         if self._watch_list.has_key(sender):
@@ -799,6 +810,7 @@ class StateObjectManager(object):
     def __init__(self):
         self.objects = {}
         self.context_queue = SimpleContextQueue()
+        self.tracking = None
 
     def has_object(self, do_id):
         return do_id in self.objects

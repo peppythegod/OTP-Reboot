@@ -1229,6 +1229,7 @@ class Client(io.NetworkHandler):
         self._forced_zones = {}
         
         self._dna_stores = {}
+        self._deleted_object_history = []
         
         self.idtest = random.random()
 
@@ -1357,12 +1358,24 @@ class Client(io.NetworkHandler):
             self.handle_object_enter_location(False, di)
         elif message_type == types.STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED_OTHER:
             self.handle_object_enter_location(True, di)
+        elif message_type == types.STATESERVER_OBJECT_CHANGING_LOCATION:
+            self.handle_object_changing_location(di)
         elif message_type == types.STATESERVER_OBJECT_DELETE_RAM:
             self.handle_object_delete_ram(di)
         elif message_type == types.STATESERVER_OBJECT_UPDATE_FIELD:
             self.handle_object_update_field_resp(sender, di)
         else:
             self.network.database_interface.handle_datagram(message_type, di)
+            
+    def handle_object_changing_location(self, di):
+        do_id = di.get_uint32()
+        new_parent_id = di.get_uint32()
+        new_zone_id = di.get_uint32()
+        if self.has_seen_object(do_id, True):
+            if not self._seen_objects.has_key(new_zone_id):
+                self._seen_objects[new_zone_id] = []
+            print "ack change for %d to %d" %(do_id, new_zone_id)
+            self._seen_objects[new_zone_id].append(do_id)
             
     def handle_client_object_location(self, di):
         try:
@@ -1417,7 +1430,6 @@ class Client(io.NetworkHandler):
                         if old_zone_id % 100 != 0:
                             old_vis_zones.update(self.get_vis_branch_zones(old_zone_id))
                             for zone_id in old_vis_zones:
-                                print "0 VIS KILL, ", zone_id
                                 kill_zones.append(zone_id)
                         del self._dna_stores[old_branch_zone_id]
             
@@ -1466,7 +1478,6 @@ class Client(io.NetworkHandler):
                 'Received truncated datagram from channel: %d!' % (
                     self._channel))
             return
-        print "============="
         newZones = []
         for zone in interest.getZones():
             if not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone):
@@ -1474,19 +1485,16 @@ class Client(io.NetworkHandler):
             else:
                 if len(interest.getZones()) == 1:
                     # This interest was already created and letting it go through empty would erase previous interest zones
-                    print "saving interest"
                     self.handle_interest_done(interest.getId(), interest.getContext())
                     return
                 
         new_vis_zones = set()
         for new_zone_id in newZones:
-            print "searching vis zones for ", new_zone_id
             new_zone_in_street_branch = self.get_in_street_branch(new_zone_id)
             if new_zone_in_street_branch:
                 new_branch_zone_id = ZoneUtil.getBranchZone(new_zone_id)
                 if new_zone_id % 100 != 0:
                     new_vis_zones.update(self.get_vis_branch_zones(new_zone_id))
-                    print "new_vis_zones are ", new_vis_zones
         
         interest.setVisZones(new_vis_zones)
              
@@ -1503,20 +1511,18 @@ class Client(io.NetworkHandler):
                     killedZones.append(zone)
                 
             old_interest_vis_zones = previousInterest.getVisZones()
-            #for zone_id in old_interest_vis_zones:
-            #    if zone_id in newZones and self.get_in_street_branch(new_zone_id):
-            #        print "flush ", zone_id
-            #        newZones.remove(zone_id)
             
             interest_vis_zones = interest.getVisZones()
             for zone_id in old_interest_vis_zones.difference(interest_vis_zones):
-                print "VIS KILL, ", zone_id
                 killedZones.append(zone_id)
                 
             for zone_id in interest_vis_zones.difference(old_interest_vis_zones):
                 if zone_id not in newZones and not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone_id):
-                    print "VISS ADD, ", zone_id
                     newZones.append(zone_id)
+                    
+            for k in killedZones:
+                if k in interest.getVisZones() or k in newZones:
+                    killedZones.remove(k)
                     
             self.close_zones(killedZones, interest.getParent())
             self._interest_manager.remove_interest_object(self._interest_manager.has_interest_object_id(interest.getId(), True))
@@ -1527,6 +1533,10 @@ class Client(io.NetworkHandler):
         for zone in newZones:
             if not self._interest_manager.has_interest_object_parent_and_zone(interest.getParent(), zone, False, True):
                 finalZones.append(zone)
+                
+        print "Client requested zones are: ", finalZones
+        print "Client visible zones are: ", interest.getVisZones()
+        print "==="
         
         self._interest_manager.add_interest_object(interest)
             
@@ -1542,10 +1552,8 @@ class Client(io.NetworkHandler):
         datagram.add_uint32(interest.getContext())
         datagram.add_uint16(len(finalZones))
         for zone in finalZones:
-            print "zone interest ", zone
             datagram.add_uint32(zone)
             
-        print "=============="
         self.network.handle_send_connection_datagram(datagram)
             
     def handle_interest_done(self, interestId, context):
@@ -2128,6 +2136,9 @@ class Client(io.NetworkHandler):
             
             datagram.append_data(di.get_remaining_bytes())
             self.handle_send_datagram(datagram)
+            
+            if do_id in self._deleted_object_history:
+                self._deleted_object_history.remove(do_id)
 
             #seen_objects = self._seen_objects.setdefault(zone_id, [])
             #seen_objects.append(do_id)
@@ -2161,7 +2172,14 @@ class Client(io.NetworkHandler):
         # generate request sent by the StateServer...
         if not self.has_seen_object(do_id, True):
             return
+            
+        # double check to prevent sending this more than one time
+        if do_id in self._deleted_object_history:
+            return
+            
+        self._deleted_object_history.append(do_id)
 
+        print "deleting id %d" %do_id
         datagram = io.NetworkDatagram()
         datagram.add_uint16(types.CLIENT_OBJECT_DELETE_RESP)
         datagram.add_uint32(do_id)
