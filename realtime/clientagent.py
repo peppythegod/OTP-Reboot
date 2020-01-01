@@ -2111,9 +2111,7 @@ class Client(io.NetworkHandler):
         if do_id in self._owned_objects:
             return
             
-        # check to see if we already generated this object
-        # TODO: redo interest handles to avoid this
-        if self._seen_objects.has_key(zone_id) and do_id in self._seen_objects[zone_id]:
+        if self.has_seen_object(do_id):
             return
 
         # check to see if we have interest in this object's zone, and if we
