@@ -29,8 +29,7 @@ class NameGenerator:
         self.lastSuffixes = []
         self.nameDictionary = {}
         searchPath = DSearchPath()
-        if __debug__:
-            searchPath.appendDirectory(Filename('../ToontownOnline/phase_3/etc'))
+        searchPath.appendDirectory(Filename('../ToontownOnline-JP/phase_3/etc'))
         searchPath.appendDirectory(Filename('/phase_3/etc'))
         filename = Filename('NameMasterEnglish.txt')
         found = vfs.resolveFilename(filename, searchPath)

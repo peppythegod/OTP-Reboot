@@ -88,22 +88,59 @@ class StateObject(object):
 
         self._zone_objects = {}
         self._watch_list = {}
-
+        
         field_packer = DCPacker()
+        
+        for field_index in range(self._dc_class.get_num_inherited_fields()):
+            field = self._dc_class.get_inherited_field(field_index)
+            if not field:
+                self.notify.error('Failed to unpack required field: %d dclass: %s, unknown field!' % (field_index, self._dc_class.get_name()))
+                return
+                
+            if not field.is_required() or not field.is_ownrecv() or not field.is_db():
+                continue
+                
+            diSize = di.get_remaining_size() + di.get_current_index()
+            blobSize = di.get_int64()
+            self.notify.debug('Field: %s, Datagram Size: %d, Blob Size: %d' % (field, diSize, blobSize))
+            
+            if (blobSize > diSize or blobSize > di.get_remaining_size()):
+                self.notify.error('Failed to unpack required field: %s dclass: %s, bad field arg size!' % (field, self._dc_class.get_name()))
+                break
+                
+            import pickle
+            field_args = pickle.loads(di.extract_bytes(blobSize))
+            
+            self._required_fields[field.get_number()] = field_args
+           
         field_packer.set_unpack_data(di.get_remaining_bytes())
 
         for field_index in range(self._dc_class.get_num_inherited_fields()):
             field = self._dc_class.get_inherited_field(field_index)
             if not field:
-                self.notify.error('Failed to unpack required field: %d '
-                    'dclass: %s, unknown field!' % (field_index, self._dc_class.get_name()))
-
+                self.notify.error('Failed to unpack required field: %d dclass: %s, unknown field!' % (field_index, self._dc_class.get_name()))
+                return
+                
             if not field.is_required():
                 continue
+            if field.is_ownrecv() and field.is_db():
+                continue
+                
+            if field_packer.hadPackError():
+                self.notify.error('Failed to unpack required field: %s for object %d, field packer had a packing error!' % (field, self._do_id))
+                return
+            elif field_packer.hadError():
+                self.notify.error('Failed to unpack required field: %s for object %d, field packer had a unknown error!' % (field, self._do_id))
+                return
 
-            field_packer.begin_unpack(field)
-            field_args = field.unpack_args(field_packer)
-            field_packer.end_unpack()
+            try:
+                field_packer.begin_unpack(field)
+                field_args = field.unpack_args(field_packer)
+                field_packer.end_unpack()
+            except:
+                self.notify.error('Failed to unpack required field: %s dclass: %s, unpacking error!' % (field, self._dc_class.get_name()))
+                import traceback
+                raise traceback.print_exc()
 
             self._required_fields[field.get_number()] = field_args
 
@@ -113,8 +150,7 @@ class StateObject(object):
                 field_id = field_packer.raw_unpack_uint16()
                 field = self._dc_class.get_field_by_index(field_id)
                 if not field:
-                    self.notify.error('Failed to unpack other field: %d '
-                        'dclass: %s, unknown field!' % (field_id, self._dc_class.get_name()))
+                    self.notify.error('Failed to unpack other field: %d dclass: %s, unknown field!' % (field_id, self._dc_class.get_name()))
 
                 if not field.is_ram():
                     continue
@@ -738,7 +774,7 @@ class StateObject(object):
             # if the field is marked broadcast, then we can proceed to broadcast
             # this field to any other objects in our interest.
             if field.is_broadcast():
-                self.object_manager.handle_updating_field(self, sender, field, field_args, excludes=[avatar_id])
+                self.object_manager.handle_updating_field(self, self._parent_id, field, field_args, excludes=[self.do_id])
 
             if field_args is not None:
                 # the client has sent an broadcast field that is marked ram,
@@ -982,20 +1018,15 @@ class StateServer(io.NetworkConnector):
         dc_id = di.get_uint16()
 
         if self.object_manager.has_object(do_id):
-            self.notify.info('Failed to generate an already existing '
-                'object with do_id: %d!' % do_id)
-
+            self.notify.info('Failed to generate an already existing object with do_id: %d!' % do_id)
             return
 
         dc_class = self.dc_loader.dclasses_by_number.get(dc_id)
         if not dc_class:
-            self.notify.warning('Failed to generate an object with do_id: %d, '
-                'no dclass found for dc_id: %d!' % (do_id, dc_id))
-
+            self.notify.warning('Failed to generate an object with do_id: %d, no dclass found for dc_id: %d!' % (do_id, dc_id))
             return
 
-        state_object = StateObject(self, self.object_manager, do_id, parent_id,
-            zone_id, dc_class, has_other, di)
+        state_object = StateObject(self, self.object_manager, do_id, parent_id, zone_id, dc_class, has_other, di)
 
         # TODO FIXME: find a better way to do this...
         if self.shard_manager.has_shard(sender) or sender == types.UD_CHANNEL:

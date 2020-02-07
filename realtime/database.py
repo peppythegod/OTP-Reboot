@@ -541,9 +541,7 @@ class DatabaseRetrieveFSM(DatabaseOperationFSM):
         for field_name, field_args in self._fields.items():
             field = self._dc_class.get_field_by_name(field_name)
             if not field:
-                self.notify.warning('Failed to query object %d context: %d, unknown field: %s' % (
-                    do_id, self._context, field_name))
-
+                self.notify.warning('Failed to query object %d context: %d, unknown field: %s' % (self._do_id, self._context, field_name))
                 return
 
             field_packer.raw_pack_uint16(field.get_number())
@@ -552,8 +550,7 @@ class DatabaseRetrieveFSM(DatabaseOperationFSM):
             field_packer.end_pack()
 
         datagram = io.NetworkDatagram()
-        datagram.add_header(self.sender, self.network.channel,
-            types.DBSERVER_OBJECT_GET_ALL_RESP)
+        datagram.add_header(self.sender, self.network.channel, types.DBSERVER_OBJECT_GET_ALL_RESP)
 
         datagram.add_uint32(self._context)
         datagram.add_uint8(1)

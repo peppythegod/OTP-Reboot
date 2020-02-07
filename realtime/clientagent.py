@@ -31,6 +31,7 @@ from game import ZoneUtil
 from game.NameGenerator import NameGenerator
 from game import genDNAFileName, extractGroupName
 from game.dna.DNAParser import loadDNAFileAI, DNAStorage
+from game import ToontownGlobals
 
 ESSENTIAL_COMPLETE_ZONES = [OTP_ZONE_ID_OLD_QUIET_ZONE, 
     OTP_ZONE_ID_MANAGEMENT, 
@@ -176,17 +177,16 @@ class LoadAccountFSM(ClientOperation):
 
     def enterCreate(self):
         fields = {
+            'DcObjectType': ('',),
             'ACCOUNT_AV_SET': ([0] * 6,),
-            'BIRTH_DATE': ('',),
-            'BLAST_NAME': (self._play_token,),
-            'CREATED': (time.ctime(),),
-            'FIRST_NAME': ('',),
-            'LAST_LOGIN': ('',),
-            'LAST_NAME': ('',),
+            'pirateAvatars': ([0] * 6,),
+            'ESTATE_ID': (0,),
+            'HOUSE_ID_SET': ([0] * 6,),
+            'ACCOUNT_AV_SET_DEL': ([[0, 0,]] * 6,),
             'PLAYED_MINUTES': ('',),
             'PLAYED_MINUTES_PERIOD': ('',),
-            'HOUSE_ID_SET': ([0] * 6,),
-            'ESTATE_ID': (0,)
+            'CREATED': (time.ctime(),),
+            'LAST_LOGIN': ('',),
         }
 
         self.manager.network.database_interface.create_object(self.client.channel,
@@ -352,9 +352,104 @@ class CreateAvatarFSM(ClientOperation):
 
     def enterStart(self):
         fields = {
+            'setName': ('Toon',),
+            'setAccountName': (str(self._account_id),),
+            'setFriendsList': ([],),
+            'setPreviousAccess': (1,),
             'setDNAString': (self._dna_string,),
+            'setMaxBankMoney': (1000,),
+            'setBankMoney': (0,),
+            'setMaxMoney': (40,),
+            'setMoney': (0,),
+            'setMaxHp': (15,),
+            'setHp': (15,),
+            'setExperience': ([0] * 14,),
+            'setMaxCarry': (20,),
+            'setTrackAccess': ([0,0,0,0,1,1,0,],),
+            'setTrackProgress': (-1, 0,),
+            'setTrackBonusLevel': ([-1,-1,-1,-1,-1,-1,-1,],),
+            'setInventory': ([[0] * 7 + [0] * 7 + [0] * 7 + [0] * 7 + [1] + [0] * 6 + [1] + [0] * 6 + [0] * 7]),
+            'setMaxNPCFriends': (16,),
+            'setNPCFriendsDict': ([],),
+            'setDefaultShard': (200000000,),
+            'setDefaultZone': (2000,),
+            'setShtickerBook': ([],),
+            'setZonesVisited': ([],),
+            'setHoodsVisited': ([],),
+            'setInterface': ([],),
+            'setLastHood': (2000,),
+            'setTutorialAck': (0,),
+            'setMaxClothes': (10,),
+            'setClothesTopsList': ([],),
+            'setClothesBottomsList': ([],),
+            'setGardenSpecials': ([],),
+            'setEmoteAccess': ([1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],),
+            'setCustomMessages': ([],),
+            'setResistanceMessages': ([],),
+            'setPetTrickPhrases': ([],),
+            'setCatalogSchedule': (0, 0,),
+            'setCatalog': ('', '', '',),
+            'setMailboxContents': ('',),
+            'setDeliverySchedule': ('',),
+            'setGiftSchedule': ('',),
+            'setAwardMailboxContents': ('',),
+            'setAwardSchedule': ('',),
+            'setAwardNotify': (0,),
+            'setCatalogNotify': (0, 0,),
+            'setTeleportAccess': ([],),
+            'setCogStatus': ([1] * 32,),
+            'setCogCount': ([0] * 32,),
+            'setCogRadar': ([0] * 4,),
+            'setBuildingRadar': ([0] * 4,),
+            'setCogLevels': ([0] * 4,),
+            'setCogTypes': ([0] * 4,),
+            'setCogParts': ([0] * 4,),
+            'setCogMerits': ([0] * 4,),
+            'setHouseId': (0,),
+            'setQuests': ([],),
+            'setQuestHistory': ([],),
+            'setRewardHistory': (0, [],),
+            'setQuestCarryLimit': (1,),
+            'setCheesyEffect': (0, 0, 0,),
             'setPosIndex': (self._index,),
-            'setName': ('Toon',)
+            'setFishCollection': ([], [], [],),
+            'setMaxFishTank': (20,),
+            'setFishTank': ([], [], [],),
+            'setFishingRod': (0,),
+            'setFishingTrophies': ([],),
+            'setFlowerCollection': ([], [],),
+            'setFlowerBasket': ([], [],),
+            'setMaxFlowerBasket': (20,),
+            'setGardenTrophies': ([],),
+            'setShovel': (0,),
+            'setShovelSkill': (0,),
+            'setWateringCan': (0,),
+            'setWateringCanSkill': (0,),
+            'setPetId': (0,),
+            'setPetTutorialDone': (0,),
+            'setFishBingoTutorialDone': (0,),
+            'setFishBingoMarkTutorialDone': (0,),
+            'setKartBodyType': (-1,),
+            'setKartBodyColor': (-1,),
+            'setKartAccessoryColor': (-1,),
+            'setKartEngineBlockType': (-1,),
+            'setKartSpoilerType': (-1,),
+            'setKartFrontWheelWellType': (-1,),
+            'setKartBackWheelWellType': (-1,),
+            'setKartRimType': (-1,),
+            'setKartDecalType': (-1,),
+            'setTickets': (200,),
+            'setKartingHistory': ([0] * 16,),
+            'setKartingTrophies': ([0] * 33,),
+            'setKartingPersonalBest': ([0] * 6,),
+            'setKartingPersonalBest2': ([0] * 12,),
+            'setKartAccessoriesOwned': ([-1] * 16,),
+            'setCogSummonsEarned': ([0] * 32,),
+            'setGardenStarted': (0,),
+            'setGolfHistory': ([0] * 18,),
+            'setPackedGolfHoleBest': ([0] * 18,),
+            'setGolfCourseBest': ([0] * 3,),
+            'setPinkSlips': (0,),
         }
 
         self.manager.network.database_interface.create_object(self.client.channel,
@@ -428,8 +523,7 @@ class LoadAvatarFSM(ClientOperation):
         self.client.handle_set_channel_id(channel)
 
         datagram = io.NetworkDatagram()
-        datagram.add_header(types.STATESERVER_CHANNEL, channel,
-            types.STATESERVER_OBJECT_GENERATE_WITH_REQUIRED_OTHER)
+        datagram.add_header(types.STATESERVER_CHANNEL, channel, types.STATESERVER_OBJECT_GENERATE_WITH_REQUIRED_OTHER)
 
         datagram.add_uint32(self._avatar_id)
         datagram.add_uint32(0)
@@ -441,33 +535,78 @@ class LoadAvatarFSM(ClientOperation):
             field = self._dc_class.get_field_by_name(field_name)
 
             if not field:
-                self.notify.warning('Failed to pack fields for object %d, unknown field: %s!' % (
-                    self._avatar_id, field_name))
-
+                self.notify.warning('Failed to pack fields for object %d, unknown field: %s!' % (self._avatar_id, field_name))
                 return
 
             sorted_fields[field.get_number()] = field_args
 
-        sorted_fields = collections.OrderedDict(sorted(
-            sorted_fields.items()))
-
+        sorted_fields = collections.OrderedDict(sorted(sorted_fields.items()))
         field_packer = DCPacker()
+        
         for field_index, field_args in sorted_fields.items():
             field = self._dc_class.get_field_by_index(field_index)
 
             if not field:
-                self.notify.error('Failed to pack required field: %d for object %d, unknown field!' % (
-                    field_index, self._avatar_id))
+                self.notify.error('Failed to pack required field: %d for object %d, unknown field!' % (field_index, self._avatar_id))
+                return
 
+            if not field.is_required() or not field.is_ownrecv() or not field.is_db():
+                continue
+
+            import pickle, base64
+            data = str(pickle.dumps(field_args))
+            size = len(data)
+            self.notify.debug('Field: %s, Field Args: %s, Data (Base64): %s, Data Size: %d' % (field, str(field_args), base64.b64encode(data), size))
+            datagram.add_int64(size)
+            datagram.append_data(data)
+        
+        for field_index, field_args in sorted_fields.items():
+            field = self._dc_class.get_field_by_index(field_index)
+
+            if not field:
+                self.notify.error('Failed to pack required field: %d for object %d, unknown field!' % (field_index, self._avatar_id))
+                return
+                
+            if field.is_required() and field.is_ownrecv() and field.is_db():
+                continue
+                
+            if field_packer.hadPackError():
+                self.notify.error('Failed to pack required field: %s for object %d, field packer had a packing error!' % (field, self._avatar_id))
+                return
+            elif field_packer.hadError():
+                self.notify.error('Failed to pack required field: %s for object %d, field packer had a unknown error!' % (field, self._avatar_id))
+                return
+            
             field_packer.begin_pack(field)
-            field.pack_args(field_packer, field_args)
+            packed = field.pack_args(field_packer, field_args)
             field_packer.end_pack()
-
-        datagram.append_data(field_packer.get_string())
+        
+            if not packed:
+                self.notify.error('Failed to pack required field: %d for object %s, failed to pack args!' % (field, self._avatar_id))
+                return
+        
+        data = field_packer.get_bytes()
+        datagram.append_data(data)
 
         other_fields = {
             'setCommonChatFlags': (self._fields.get('setCommonChatFlags', 0),),
+            'setWhitelistChatFlags': (self._fields.get('setWhitelistChatFlags', 0),),
+            'setDISLname': (self._fields.get('setDISLname', "None"),),
+            'setDISLid': (self._fields.get('setDISLid', 0),),
+            'setAccess': (self._fields.get('setAccess', 1),),
+            'setBattleId': (self._fields.get('setBattleId', 0),),
             'setTrophyScore': (self._fields.get('setTrophyScore', 0),),
+            'setCogIndex': (self._fields.get('setCogIndex', 0),),
+            'setGhostMode': (self._fields.get('setGhostMode', 0),),
+            'setPieType': (self._fields.get('setPieType', 0),),
+            'setNumPies': (self._fields.get('setNumPies', 0),),
+            'setCurrentKart': (self._fields.get('setCurrentKart', 0),),
+            'setUnlimitedSwing': (self._fields.get('setUnlimitedSwing', 0),),
+            'setNametagStyle': (self._fields.get('setNametagStyle', 0),),
+            'setInvites': (self._fields.get('setInvites', []),),
+            'setPartiesInvitedTo': (self._fields.get('setPartiesInvitedTo', []),),
+            'setHostedParties': (self._fields.get('setHostedParties', []),),
+            'setPartyReplies': (self._fields.get('setPartyReplies', []),),
         }
 
         field_packer = DCPacker()
@@ -475,37 +614,46 @@ class LoadAvatarFSM(ClientOperation):
             field = self._dc_class.get_field_by_name(field_name)
 
             if not field:
-                self.notify.error('Failed to pack other field: %s for object %d, unknown field!' % (
-                    field_name, self._avatar_id))
+                self.notify.error('Failed to pack other field: %s for object %d, unknown field!' % (field_name, self._avatar_id))
+                return
+                
+            if field_packer.hadPackError():
+                self.notify.error('Failed to pack required field: %s for object %d, field packer had a packing error!' % (field, self._avatar_id))
+                return
+            elif field_packer.hadError():
+                self.notify.error('Failed to pack required field: %s for object %d, field packer had a unknown error!' % (field, self._avatar_id))
+                return
 
             field_packer.raw_pack_uint16(field.get_number())
             field_packer.begin_pack(field)
-            field.pack_args(field_packer, field_args)
+            packed = field.pack_args(field_packer, field_args)
             field_packer.end_pack()
+            
+            if not packed:
+                self.notify.error('Failed to pack other field: %d for object %s, failed to pack args!' % (field, self._avatar_id))
+                return
 
         datagram.add_uint16(len(other_fields))
-        datagram.append_data(field_packer.get_string())
+        data = field_packer.get_bytes()
+        datagram.append_data(data)
         self.manager.network.handle_send_connection_datagram(datagram)
 
         # grant ownership over the distributed object...
         datagram = io.NetworkDatagram()
-        datagram.add_header(self._avatar_id, channel,
-            types.STATESERVER_OBJECT_SET_OWNER)
+        datagram.add_header(self._avatar_id, channel, types.STATESERVER_OBJECT_SET_OWNER)
 
         datagram.add_uint64(channel)
         self.manager.network.handle_send_connection_datagram(datagram)
-
+        
         # setup a post remove message that will delete the
         # client's toon object when they disconnect...
         post_remove = io.NetworkDatagram()
-        post_remove.add_header(self._avatar_id, channel,
-            types.STATESERVER_OBJECT_DELETE_RAM)
+        post_remove.add_header(self._avatar_id, channel, types.STATESERVER_OBJECT_DELETE_RAM)
 
         post_remove.add_uint32(self._avatar_id)
 
         datagram = io.NetworkDatagram()
-        datagram.add_control_header(self.client.allocated_channel,
-            types.CONTROL_ADD_POST_REMOVE)
+        datagram.add_control_header(self.client.allocated_channel, types.CONTROL_ADD_POST_REMOVE)
 
         datagram.append_data(post_remove.get_message())
         self.manager.network.handle_send_connection_datagram(datagram)
@@ -1446,9 +1594,13 @@ class Client(io.NetworkHandler):
 
         return False
         
-    def get_vis_branch_zones(self, zone_id):
+    def get_vis_branch_zones(self, zone_id, isCogHQ = False):
         branch_zone_id = ZoneUtil.getBranchZone(zone_id)
         dnaStore = self._dna_stores.get(branch_zone_id)
+
+        if zone_id in (ToontownGlobals.SellbotLobby, ToontownGlobals.LawbotOfficeExt, ToontownGlobals.LawbotLobby, ToontownGlobals.BossbotHQ, ToontownGlobals.CashbotLobby):
+            return []
+
         if not dnaStore:
             dnaStore = DNAStorage()
             dnaFileName = genDNAFileName(branch_zone_id)
@@ -1456,19 +1608,24 @@ class Client(io.NetworkHandler):
             self._dna_stores[branch_zone_id] = dnaStore
 
         zoneVisDict = {}
+
         for i in xrange(dnaStore.getNumDNAVisGroupsAI()):
             groupFullName = dnaStore.getDNAVisGroupName(i)
             visGroup = dnaStore.getDNAVisGroupAI(i)
             visZoneId = int(extractGroupName(groupFullName))
             visZoneId = ZoneUtil.getTrueZoneId(visZoneId, zone_id)
             visibles = []
+
             for i in xrange(visGroup.getNumVisibles()):
-                visibles.append(int(visGroup.visibles[i]))
+                visibles.append(int(visGroup.getVisibleName(i)))
 
             visibles.append(ZoneUtil.getBranchZone(visZoneId))
             zoneVisDict[visZoneId] = visibles
 
-        return zoneVisDict[zone_id]
+        if not isCogHQ:
+            return zoneVisDict[zone_id]
+        else:
+            return zoneVisDict.values()[0]
             
     def handle_add_interest(self, di): 
         try:
