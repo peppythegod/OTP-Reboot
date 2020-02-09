@@ -490,6 +490,9 @@ class LoadAvatarFSM(ClientOperation):
 
     def __init__(self, manager, client, callback, account_id, avatar_id):
         ClientOperation.__init__(self, manager, client, callback)
+        
+        # Pickle Mode is to be used till the arg packing issue is resolved.
+        self._pickle_mode = True
 
         self._account_id = account_id
         self._avatar_id = avatar_id
@@ -553,11 +556,31 @@ class LoadAvatarFSM(ClientOperation):
             if not field.is_required() or not field.is_ownrecv() or not field.is_db():
                 continue
 
-            import pickle, base64
-            data = str(pickle.dumps(field_args))
-            size = len(data)
-            self.notify.debug('Field: %s, Field Args: %s, Data (Base64): %s, Data Size: %d' % (field, str(field_args), base64.b64encode(data), size))
-            datagram.add_int64(size)
+            if self._pickle_mode:
+                import pickle, base64
+                data = str(pickle.dumps(field_args))
+                size = len(data)
+                self.notify.debug('Field: %s, Field Args: %s, Data (Base64): %s, Data Size: %d' % (field, str(field_args), base64.b64encode(data), size))
+                datagram.add_int64(size)
+                datagram.append_data(data)
+            else: 
+                if field_packer.hadPackError():
+                    self.notify.error('Failed to pack required field: %s for object %d, field packer had a packing error!' % (field, self._avatar_id))
+                    return
+                elif field_packer.hadError():
+                    self.notify.error('Failed to pack required field: %s for object %d, field packer had a unknown error!' % (field, self._avatar_id))
+                    return
+                
+                field_packer.begin_pack(field)
+                packed = field.pack_args(field_packer, field_args)
+                field_packer.end_pack()
+            
+                if not packed:
+                    self.notify.error('Failed to pack required field: %d for object %s, failed to pack args!' % (field, self._avatar_id))
+                    return
+
+        if not self._pickle_mode:
+            data = field_packer.get_bytes()
             datagram.append_data(data)
         
         for field_index, field_args in sorted_fields.items():
@@ -741,7 +764,7 @@ class LoadFriendsListFSM(ClientOperation):
             if friend_online:
                 datagram = io.NetworkDatagram()
                 datagram.add_header(friend_channel, our_channel,
-                    types.CLIENTAGENT_FRIEND_ONLINE)
+                    types.CLIENT_AGENT_FRIEND_ONLINE)
 
                 datagram.add_uint32(self._avatar_id)
                 self.manager.network.handle_send_connection_datagram(datagram)
@@ -750,7 +773,7 @@ class LoadFriendsListFSM(ClientOperation):
             # that we are offline when we disconnect...
             post_remove = io.NetworkDatagram()
             post_remove.add_header(friend_channel, our_channel,
-                types.CLIENTAGENT_FRIEND_OFFLINE)
+                types.CLIENT_AGENT_FRIEND_OFFLINE)
 
             post_remove.add_uint32(self._avatar_id)
 
@@ -1484,11 +1507,11 @@ class Client(io.NetworkHandler):
             return
 
     def handle_internal_datagram(self, message_type, sender, di):
-        if message_type == types.CLIENTAGENT_DISCONNECT:
+        if message_type == types.CLIENT_AGENT_DISCONNECT:
             self.handle_send_disconnect(di.get_uint16(), di.get_string())
-        elif message_type == types.CLIENTAGENT_FRIEND_ONLINE:
+        elif message_type == types.CLIENT_AGENT_FRIEND_ONLINE:
             self.handle_friend_online(di)
-        elif message_type == types.CLIENTAGENT_FRIEND_OFFLINE:
+        elif message_type == types.CLIENT_AGENT_FRIEND_OFFLINE:
             self.handle_friend_offline(di)
         elif message_type == types.STATESERVER_GET_SHARD_ALL_RESP:
             self.handle_get_shard_list_resp(di)

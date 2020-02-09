@@ -65,6 +65,9 @@ class StateObject(object):
     def __init__(self, network, object_manager, do_id, parent_id, zone_id, dc_class, has_other, di):
         self._network = network
         self.object_manager = object_manager
+        
+        # Pickle Mode is to be used till the arg packing issue is resolved.
+        self._pickle_mode = True
 
         self._do_id = do_id
 
@@ -91,6 +94,9 @@ class StateObject(object):
         
         field_packer = DCPacker()
         
+        if not self._pickle_mode:
+            field_packer.set_unpack_data(di.get_remaining_bytes())
+        
         for field_index in range(self._dc_class.get_num_inherited_fields()):
             field = self._dc_class.get_inherited_field(field_index)
             if not field:
@@ -107,13 +113,25 @@ class StateObject(object):
             if (blobSize > diSize or blobSize > di.get_remaining_size()):
                 self.notify.error('Failed to unpack required field: %s dclass: %s, bad field arg size!' % (field, self._dc_class.get_name()))
                 break
-                
-            import pickle
-            field_args = pickle.loads(di.extract_bytes(blobSize))
+               
+            if self._pickle_mode:
+                import pickle
+                field_args = pickle.loads(di.extract_bytes(blobSize))
+            else:
+                try:
+                    field_packer.begin_unpack(field)
+                    field_args = field.unpack_args(field_packer)
+                    field_packer.end_unpack()
+                except:
+                    self.notify.error('Failed to unpack required field: %s dclass: %s, unpacking error!' % (field, self._dc_class.get_name()))
+                    import traceback
+                    traceback.print_exc()
+                    raise 
             
             self._required_fields[field.get_number()] = field_args
            
-        field_packer.set_unpack_data(di.get_remaining_bytes())
+        if self._pickle_mode:
+            field_packer.set_unpack_data(di.get_remaining_bytes())
 
         for field_index in range(self._dc_class.get_num_inherited_fields()):
             field = self._dc_class.get_inherited_field(field_index)
@@ -140,7 +158,8 @@ class StateObject(object):
             except:
                 self.notify.error('Failed to unpack required field: %s dclass: %s, unpacking error!' % (field, self._dc_class.get_name()))
                 import traceback
-                raise traceback.print_exc()
+                traceback.print_exc()
+                raise
 
             self._required_fields[field.get_number()] = field_args
 
@@ -151,6 +170,7 @@ class StateObject(object):
                 field = self._dc_class.get_field_by_index(field_id)
                 if not field:
                     self.notify.error('Failed to unpack other field: %d dclass: %s, unknown field!' % (field_id, self._dc_class.get_name()))
+                    return
 
                 if not field.is_ram():
                     continue
@@ -992,7 +1012,7 @@ class StateServer(io.NetworkConnector):
     def handle_send_disconnect(self, channel, shard):
         datagram = io.NetworkDatagram()
         datagram.add_header(channel, self.channel,
-            types.CLIENTAGENT_DISCONNECT)
+            types.CLIENT_AGENT_DISCONNECT)
 
         datagram.add_uint16(types.CLIENT_DISCONNECT_SHARD_CLOSED)
         datagram.add_string('Shard with channel: %d has been terminated!' % shard.channel)
