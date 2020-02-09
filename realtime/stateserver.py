@@ -956,7 +956,7 @@ class StateServer(io.NetworkConnector):
     def handle_send_disconnect(self, channel, shard):
         datagram = io.NetworkDatagram()
         datagram.add_header(channel, self.channel,
-            types.CLIENTAGENT_DISCONNECT)
+            types.CLIENT_AGENT_DISCONNECT)
 
         datagram.add_uint16(types.CLIENT_DISCONNECT_SHARD_CLOSED)
         datagram.add_string('Shard with channel: %d has been terminated!' % shard.channel)
